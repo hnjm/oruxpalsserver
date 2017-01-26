@@ -1,0 +1,9 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<OruxPalsServerConfig>
+	<ListenPort help="listen tcp port" default="12015">12015</ListenPort>
+	<maxClientAlive help="close clients if they connected more XX minutes" default="60">60</maxClientAlive>
+	<maxHours help="keep information within XX hours" default="48">48</maxHours>
+	<greenMinutes help="by default all new vessels are class A (violet) if there is no info from vessel for XX minutes - it will be class B (green)" default="60">60</greenMinutes>
+	<urlPath help="url path, must be 8-symbols length" default="oruxpals">oruxpals</urlPath>
+	<adminName help="admin name for online generate hashsum for users">admin</adminName>
+</OruxPalsServerConfig>
