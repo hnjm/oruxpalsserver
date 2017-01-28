@@ -71,7 +71,7 @@ namespace OruxPals
             mainListener = new TcpListener(this.ListenIP, this.ListenPort);
             mainListener.Start();
             Console.WriteLine("OK");
-            Console.WriteLine("Info at: http://127.0.0.1:{0}{1}i/",ListenPort, urlPath);
+            Console.WriteLine("Info at: http://127.0.0.1:{0}{1}info",ListenPort, urlPath);
             while (isRunning)
             {
                 try
@@ -196,6 +196,9 @@ namespace OruxPals
                 //case 'm':
                 //    OnMMT(cd, rxText);
                 //    return;
+                case 'v':
+                    OnView(cd, query.Substring(11));
+                    return;
                 default:
                     HttpClientSendError(cd.client, 403);
                     return;
@@ -268,7 +271,8 @@ namespace OruxPals
                 "Buddies: {3} {6} \r\n<br/>" +
                 "AIS URL: 127.0.0.1:{4}\r\n<br/>" +
                 "GPSGate URL: http://127.0.0.1:{4}{5}@"+user+"/\r\n<br/>" +
-                "MapMyTracks URL: http://127.0.0.1:{4}{5}m/\r\n<br/>\r\n<br/>"+
+                "MapMyTracks URL: http://127.0.0.1:{4}{5}m/\r\n<br/>"+
+                "<a href=\"{5}view\">View Online Map</a>\r\n<br/>\r\n<br/>" +
                 addit,
                 new object[] { 
                 softver, 
@@ -437,6 +441,35 @@ namespace OruxPals
             return;
         }
 
+        private void OnView(ClientData cd, string query)
+        {
+            string[] ss = query.Split(new char[] { '/' }, 2);
+            string prf = ss[0];
+            string ptf = "";
+            if (ss.Length > 1) ptf = ss[1];
+
+            if (prf == "list")
+            {
+                string cdata = "";
+                if (BUDS != null)
+                {
+                    Buddie[] bs = BUDS.Current;
+                    foreach (Buddie b in bs)
+                        cdata += (cdata.Length > 0 ? "," : "") + "{" + String.Format("user:'{0}',received:'{1}',lat:{2},lon:{3},speed:{4},hdg:{5},source:'{6}'",
+                            new object[] { b.name, b.last, b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.speed, b.course, b.source == 1 ? "GPSGate" : "MapMyTracks" }) + "}";
+                };
+                cdata = "["+cdata+"]";
+                HTTPClientSendResponse(cd.client, cdata);
+            }
+            else
+            {
+                if (ptf == "")
+                    HTTPClientSendFile(cd.client, "map.html");
+                else
+                    HTTPClientSendFile(cd.client, ptf);
+            };
+        }
+
         private void OnNewData(Buddie buddie)
         {
             if (BUDS != null)
@@ -515,6 +548,41 @@ namespace OruxPals
             Client.Close();
         }
 
+        private static void HTTPClientSendFile(TcpClient Client, string fileName)
+        {
+            string ffn = OruxPalsServerConfig.GetCurrentDir() + @"\MAP\" + fileName;
+            if (!File.Exists(ffn))
+            {
+                HttpClientSendError(Client, 404);
+                return;
+            };
+
+            string ctype = "text/html; charset=utf-8";
+            System.IO.FileStream fs = new FileStream(ffn, FileMode.Open, FileAccess.Read);
+
+            string Headers =
+                "HTTP/1.1 200 OK\r\n" +
+                "Server: " + softver + "\r\n" +
+                "Connection: close\r\n" +
+                "Content-Type: " + ctype + "\r\n" +
+                "Content-Length: " + fs.Length + "\r\n\r\n";
+            byte[] Buffer = new byte[8192];
+            try {
+                Buffer = Encoding.ASCII.GetBytes(Headers);
+                Client.GetStream().Write(Buffer, 0, Buffer.Length);
+                int btr = (int)(fs.Length - fs.Position);
+                while (btr > 0)
+                {
+                    int rdd = fs.Read(Buffer, 0, Buffer.Length > btr ? btr : Buffer.Length);
+                    Client.GetStream().Write(Buffer, 0, rdd);
+                    btr -= rdd;
+                };                
+            }
+            catch { }
+            fs.Close();
+            Client.Close();
+        }
+
         private static void HttpClientSendError(TcpClient Client, int Code)
         {
             string CodeStr = Code.ToString() + " " + ((HttpStatusCode)Code).ToString();
@@ -583,7 +651,7 @@ namespace OruxPals
             return c;
         }
 
-        private static string GetCurrentDir()
+        public static string GetCurrentDir()
         {
             string fname = System.Reflection.Assembly.GetExecutingAssembly().GetName().CodeBase.ToString();
             fname = fname.Replace("file:///", "");

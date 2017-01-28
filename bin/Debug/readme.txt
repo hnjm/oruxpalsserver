@@ -15,6 +15,9 @@ To connect for upload positions (with speed & course) use GPSGate:
 
 To connect for upload positions (without speed & course) use MapMyTracks:
 	URL: http://www.mypals.com:12015/oruxpals/m/
+
+To view online map:
+	http://127.0.0.1:12015/oruxpals/view
 	
 To online generate user hashsum (xml tag <adminName/>):
 	http://127.0.0.1:12015/oruxpals/$admin
