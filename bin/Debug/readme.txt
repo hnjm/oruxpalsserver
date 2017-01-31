@@ -6,8 +6,14 @@ To view server info in browser:
 	http://127.0.0.1:12015/oruxpals/info
 
 To connect for view positions use AIS IP Server:
-    GPS-AIS-NMEA source: IP
+	GPS-AIS-NMEA source: IP
 	AIS IP URL:  www.mypals.com:12015
+
+To connect for view & upload data use APRS Client:
+	URL: 127.0.0.1:12015    
+
+To connect for upload positions user GPSGate Tracker:
+	URL: 127.0.0.1:12015
  
 To connect for upload positions (with speed & course) use GPSGate:
 	URL: http://www.mypals.com:12015/oruxpals/@user/

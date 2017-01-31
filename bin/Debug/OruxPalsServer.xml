@@ -6,4 +6,8 @@
 	<greenMinutes help="by default all new vessels are class A (violet) if there is no info from vessel for XX minutes - it will be class B (green)" default="60">60</greenMinutes>
 	<urlPath help="url path, must be 8-symbols length" default="oruxpals">oruxpals</urlPath>
 	<adminName help="admin name for online generate hashsum for users">admin</adminName>
+	<users help="You can place here users for GPSGate Tracker, where only const IMEI and variable phone number, not defined phones will be ignored">
+		<u name="TESTING1" phone="+11030047" help="sample, for real users delete this tag"/>
+		<u name="TESTING2" phone="+12345678" help="sample, for real users delete this tag"/>
+	</users>
 </OruxPalsServerConfig>
