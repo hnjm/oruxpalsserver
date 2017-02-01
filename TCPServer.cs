@@ -16,9 +16,9 @@ namespace OruxPals
     public class OruxPalsServer
     {
         public static string serviceName { get { return "OruxPals"; } }
-        public static string softver { get { return "OruxPalsServer v0.3a"; } }
+        public static string softver { get { return "OruxPalsServer v0.5a"; } }
 
-        private OruxPalsServerConfig.FRNUser[] frnusers;
+        private OruxPalsServerConfig.RegUser[] regUsers;
         private Hashtable clientList = new Hashtable();
         private Thread listenThread = null;
         private TcpListener mainListener = null;        
@@ -28,6 +28,11 @@ namespace OruxPals
         private Buddies BUDS = null;
         private DateTime started;
 
+        private APRSISConfig aprscfg;
+        private APRSISGateWay aprsgw;
+
+        private OruxPalsServerConfig.FwdSvc[] forwardServices;
+
         private IPAddress ListenIP = IPAddress.Any;
         private int ListenPort = 12015;
         private ushort MaxClientAlive = 60;
@@ -35,6 +40,8 @@ namespace OruxPals
         private ushort greenMinutes = 60;
         private string urlPath = "/oruxpals/";
         private string adminName = "admin";
+        private bool sendBack = false;
+        private string infoIP = "127.0.0.1";
 
         public OruxPalsServer() 
         {
@@ -45,8 +52,12 @@ namespace OruxPals
             greenMinutes = config.greenMinutes;
             if (config.urlPath.Length != 8) throw new Exception("urlPath must be 8 symbols length");
             adminName = config.adminName;
+            sendBack = config.sendBack == "yes";
+            infoIP = config.infoIP;
             urlPath = "/"+config.urlPath.ToLower()+"/";
-            if (config.users != null) frnusers = config.users.users;
+            if (config.users != null) regUsers = config.users.users;
+            aprscfg = config.aprsis;
+            forwardServices = config.forwardServices.services;
         }        
 
         public bool Running { get { return isRunning; } }
@@ -60,13 +71,21 @@ namespace OruxPals
         {
             if (isRunning) return;
             started = DateTime.UtcNow;
-            Console.Write("Starting {0} at {1}:{2}... ", softver, ListenIP, ListenPort);
+            Console.Write("Starting {0} at {1}:{2}... ", softver, infoIP, ListenPort);
             BUDS = new Buddies(maxHours, greenMinutes);
             BUDS.onBroadcastAIS = new Buddies.BroadcastMethod(BroadcastAIS);
             BUDS.onBroadcastAPRS = new Buddies.BroadcastMethod(BroadcastAPRS);
             isRunning = true;
             listenThread = new Thread(MainThread);
-            listenThread.Start();            
+            listenThread.Start();
+
+            if ((aprscfg != null) && (aprscfg.user != null) && (aprscfg.user != String.Empty) && (aprscfg.url != null) && (aprscfg.url != String.Empty) && 
+                ((aprscfg.global2ais == "yes") || (aprscfg.global2aprs == "yes") || (aprscfg.aprs2global == "yes") || (aprscfg.any2global == "yes")))
+            {
+                aprsgw = new APRSISGateWay(aprscfg);
+                aprsgw.onPacket = new APRSISGateWay.onAPRSGWPacket(OnGlobalAPRSData);
+                aprsgw.Start();
+            };
         }
 
         private void MainThread()
@@ -74,8 +93,8 @@ namespace OruxPals
             mainListener = new TcpListener(this.ListenIP, this.ListenPort);
             mainListener.Start();
             Console.WriteLine("OK");
-            Console.WriteLine("Info at: http://127.0.0.1:{0}{1}info",ListenPort, urlPath);
-            Console.WriteLine("Admin at: http://127.0.0.1:{0}{1}${2}", ListenPort, urlPath, adminName);
+            Console.WriteLine("Info at: http://{2}:{0}{1}info",ListenPort, urlPath, infoIP);
+            Console.WriteLine("Admin at: http://{3}:{0}{1}${2}", ListenPort, urlPath, adminName, infoIP);
             (new Thread(PingThread)).Start(); // ping clients thread
             while (isRunning)
             {
@@ -110,6 +129,10 @@ namespace OruxPals
 
             Console.Write("Stopping... ");
             isRunning = false;
+
+            if (aprsgw != null) aprsgw.Stop();
+            aprsgw = null;
+
             BUDS.Dispose();
             BUDS = null;
 
@@ -124,7 +147,7 @@ namespace OruxPals
         {
             string pingmsg = "# " + softver + "\r\n";
             byte[] pingdata = Encoding.ASCII.GetBytes(pingmsg);
-            Broadcast(pingdata, true, true);
+            BroadcastAPRS(pingdata);
         }
 
         private void GetClient(TcpClient Client)
@@ -144,8 +167,10 @@ namespace OruxPals
             int rxAvailable = 0;
             int waitCounter = 30; // 3 sec
             
-            while (Running && cd.thread.IsAlive && IsConnected(cd.client) && (DateTime.UtcNow.Subtract(cd.connected).TotalMinutes < MaxClientAlive))
+            while (Running && cd.thread.IsAlive && IsConnected(cd.client))
             {
+                if ((cd.state == 1) && (DateTime.UtcNow.Subtract(cd.connected).TotalMinutes >= MaxClientAlive)) break;
+
                 try { rxAvailable = cd.client.Client.Available; }
                 catch { break; };
 
@@ -188,7 +213,7 @@ namespace OruxPals
                         }
                         else if (rxText.IndexOf("$FRPAIR") == 0)
                         {
-                            if (OnFRNClient(cd, rxText.Replace("\r", "").Replace("\n", "")))
+                            if (OnFRSClient(cd, rxText.Replace("\r", "").Replace("\n", "")))
                                 rxText = "";
                             else
                                 break;
@@ -212,7 +237,7 @@ namespace OruxPals
                         string[] lines = rxText.Split(new string[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
                         rxText = "";
                         foreach (string line in lines)
-                            OnFRNData(cd, line);
+                            OnFRSData(cd, line);
                     };
                 }
                 catch { };
@@ -254,6 +279,19 @@ namespace OruxPals
                 if (psw == APRSData.CallsignChecksum(callsign))
                 {
                     cd.state = 4; //APRS
+                    cd.user = callsign; // .user - valid username for callsign
+
+                    /* SEARCH REGISTERED */
+                    if ((regUsers != null) && (regUsers.Length > 0))
+                        foreach (OruxPalsServerConfig.RegUser u in regUsers)
+                            if ((u.services != null) && (u.services.Length > 0))
+                                foreach (OruxPalsServerConfig.RegUserSvc svc in u.services)
+                                    if (svc.names.Contains("A"))
+                                        if (callsign == svc.id)
+                                            cd.user = u.name;
+                    // remove ssid, `-` not valid symbol in name
+                    if (cd.user.Contains("-")) cd.user = cd.user.Substring(0, cd.user.IndexOf("-"));
+
                     res = "# logresp " + callsign + " verified, filter is not supported";
                     byte[] ret = Encoding.ASCII.GetBytes(res + "\r\n");
                     try { cd.stream.Write(ret, 0, ret.Length); }
@@ -263,7 +301,13 @@ namespace OruxPals
                     {
                         Buddie[] bup = BUDS.Current;
                         List<byte[]> blist = new List<byte[]>();
-                        foreach (Buddie b in bup) blist.Add(b.APRSData);
+                        foreach (Buddie b in bup)
+                        {
+                            if(sendBack)
+                                blist.Add(b.APRSData);
+                            else if(b.name != cd.user)
+                                blist.Add(b.APRSData);
+                        };
                         foreach (byte[] ba in blist)
                             try { cd.stream.Write(ba, 0, ba.Length); }
                             catch { };
@@ -288,18 +332,198 @@ namespace OruxPals
             if (line.IndexOf("#") == 0) return;
             if (line.IndexOf(">") < 0) return;
 
-            try { if (line.IndexOf("::") > 0) onAPRStypeMessage(cd, line); } catch { };
+            try { if (line.IndexOf("::") > 0) if(OnAPRSinternalMessage(cd, line)) return; } catch { };
             
             Buddie b = APRSData.ParseAPRSPacket(line);
-            if ((b != null) && (b.name != null) && (b.name != String.Empty) && (b.lat != 0) && (b.lon != 0))
+            if ((b != null) && (b.name != null) && (b.name != String.Empty))
             {
-                // remove ssid
-                if (b.name.Contains("-")) b.name = b.name.Substring(0, b.name.IndexOf("-"));
-                OnNewData(b);
+                // Direct Forward
+                if ((aprsgw != null) && (aprscfg.aprs2global == "yes") && (regUsers != null) && (regUsers.Length > 0))
+                    foreach(OruxPalsServerConfig.RegUser u in regUsers)
+                        if ((u.forward != null) && (u.forward.Contains("A")) && (u.services != null) && (u.services.Length > 0))
+                           foreach(OruxPalsServerConfig.RegUserSvc svc in u.services)
+                               if ((svc.names.Contains("A")) && (b.name == svc.id))
+                                   aprsgw.SendCommand(b.APRS);
+
+               // if callsign is not valid name for user
+               if (b.name != cd.user)
+               {
+                   b.APRS = b.APRS.Replace(b.name + ">", cd.user + ">");
+                   b.APRSData = Encoding.ASCII.GetBytes(b.APRS);
+                   b.name = cd.user;
+               };
+
+               if ((b.lat != 0) && (b.lon != 0))
+                   OnNewData(b);
             };
         }
 
-        private bool OnFRNClient(ClientData cd, string pairstring)
+        private bool OnAPRSinternalMessage(ClientData cd, string line)
+        {
+            string frm = line.Substring(0, line.IndexOf(">"));
+            string msg = line.Substring(line.IndexOf("::") + 12).Trim();
+
+            bool sendack = false;
+            byte[] tosendack = new byte[0];
+
+            if (line.IndexOf("::ORXPLS-GW:") > 0) // ping & forward
+            {
+                sendack = true;
+                if (msg.Contains("{"))
+                {
+                    string cmd2s = "ORXPLS-GW>APRS,TCPIP*::" + frm + ": ack" + msg.Substring(msg.IndexOf("{") + 1) + "\r\n";
+                    msg = msg.Substring(0, msg.IndexOf("{")).Trim();
+                    tosendack = Encoding.ASCII.GetBytes(cmd2s);
+                };
+
+                if ((msg != null) && (msg != String.Empty))
+                {
+                    string[] ms = msg.ToUpper().Split(new string[] { " " }, StringSplitOptions.None);
+                    if (ms == null) return true;
+                    if (ms.Length == 0) return true;
+
+                    if (ms[0] == "FORWARD") // forward
+                    {
+                        OruxPalsServerConfig.RegUser cu = null;
+                        if (regUsers != null)
+                            foreach (OruxPalsServerConfig.RegUser u in regUsers)
+                            {
+                                if (frm == u.name)
+                                {
+                                    cu = u;
+                                    break;
+                                };
+                                if (u.services != null)
+                                    foreach (OruxPalsServerConfig.RegUserSvc svc in u.services)
+                                        if (svc.names.Contains("A") && (svc.id == frm))
+                                        {
+                                            cu = u;
+                                            break;
+                                        };
+                            };
+
+                        if (cu == null)
+                        {
+                            string cmd2s = "ORXPLS-GW>APRS,TCPIP*::" + frm + ": no forward privileges\r\n";
+                            byte[] bts = Encoding.ASCII.GetBytes(cmd2s);
+                            try { cd.stream.Write(bts, 0, bts.Length); }
+                            catch { };
+                        }
+                        else
+                        {
+                            if (ms.Length > 1)
+                                cu.forward = ms[1].ToUpper();
+                            string cmd2s = "ORXPLS-GW>APRS,TCPIP*::" + frm + ": forward set to `" + (cu.forward == null ? "" : cu.forward) + "`\r\n";
+                            byte[] bts = Encoding.ASCII.GetBytes(cmd2s);
+                            try { cd.stream.Write(bts, 0, bts.Length); }
+                            catch { };
+                        };
+                    }
+                    else if ((ms[0] == adminName.ToUpper()) && (ms.Length > 1)) // hashsum
+                    {
+                        string res = "";
+                        for (int i = 1; i < ms.Length; i++) res += "u " + ms[i] + " a " + APRSData.CallsignChecksum(ms[i]) + " p " + Buddie.Hash(ms[i]) + " ";
+                        string cmd2s = "ORXPLS-GW>APRS,TCPIP*::" + frm + ": " + res + "\r\n";
+                        byte[] bts = Encoding.ASCII.GetBytes(cmd2s);
+                        try { cd.stream.Write(bts, 0, bts.Length); }
+                        catch { };
+                    };
+                };
+            };
+
+            if (line.IndexOf("::ORXPLS-ST:") > 0) // status
+            {
+                sendack = true;
+                if (msg.Contains("{"))
+                {
+                    string cmd2s = "ORXPLS-ST>APRS,TCPIP*::" + frm + ": ack" + msg.Substring(msg.IndexOf("{") + 1) + "\r\n";
+                    msg = msg.Substring(0, msg.IndexOf("{")).Trim();
+                    tosendack = Encoding.ASCII.GetBytes(cmd2s);
+                };
+
+                OruxPalsServerConfig.RegUser cu = null;
+                string id = "";
+                if ((regUsers != null) && (aprsgw != null) && (aprscfg.aprs2global == "yes"))
+                    foreach (OruxPalsServerConfig.RegUser u in regUsers)                    
+                        if ((u.forward != null) && (u.forward.Contains("A")) && (u.services != null))
+                            foreach (OruxPalsServerConfig.RegUserSvc svc in u.services)
+                                if (svc.names.Contains("A") && (svc.id == frm))
+                                {
+                                    cu = u;
+                                    id = svc.id;
+                                    break;
+                                };
+
+                if ((msg != null) && (msg != String.Empty) && (cu != null) && (id != ""))
+                {
+                    aprsgw.SendCommand(id + ">APRS,TCPIP*:>" + msg + "\r\n");
+
+                    string cmd2s = "ORXPLS-ST>APRS,TCPIP*::" + frm + ": " + msg + "\r\n";
+                    byte[] bts = Encoding.ASCII.GetBytes(cmd2s);
+                    try { cd.stream.Write(bts, 0, bts.Length); }
+                    catch { };
+                };
+            };
+
+            if (line.IndexOf("::ORXPLS-CM:") > 0) // comment
+            {
+                sendack = true;
+                if (msg.Contains("{"))
+                {
+                    string cmd2s = "ORXPLS-CM>APRS,TCPIP*::" + frm + ": ack" + msg.Substring(msg.IndexOf("{") + 1) + "\r\n";
+                    msg = msg.Substring(0, msg.IndexOf("{")).Trim();
+                    tosendack = Encoding.ASCII.GetBytes(cmd2s);
+                };
+
+                msg = msg.Trim();
+
+                OruxPalsServerConfig.RegUserSvc rus = null;
+                if (regUsers != null)
+                    foreach (OruxPalsServerConfig.RegUser u in regUsers)
+                        if (u.services != null)
+                            foreach (OruxPalsServerConfig.RegUserSvc svc in u.services)
+                                if (svc.names.Contains("A") && (svc.id == frm))
+                                {
+                                    rus = svc;
+                                    break;
+                                };
+
+                if ((msg != null) && (msg != String.Empty) && (msg != "?") && (rus != null))
+                    rus.comment = msg;
+                if (rus != null)
+                {
+                    string cmd2s = "ORXPLS-CM>APRS,TCPIP*::" + frm + ": " + rus.comment + "\r\n";
+                    byte[] bts = Encoding.ASCII.GetBytes(cmd2s);
+                    try { cd.stream.Write(bts, 0, bts.Length); }
+                    catch { };
+                };
+            };
+
+            if (sendack && (tosendack.Length > 0))
+                try { cd.stream.Write(tosendack, 0, tosendack.Length); }
+                catch { };
+
+            return sendack;
+        }
+
+        private void OnGlobalAPRSData(string line)
+        {
+            if (aprscfg.global2aprs == "yes")
+                BroadcastAPRS(Encoding.ASCII.GetBytes(line+"\r\n"));
+
+            if (aprscfg.global2ais == "yes")
+            {
+                Buddie b = APRSData.ParseAPRSPacket(line);
+                if ((b != null) && (b.name != null) && (b.name != String.Empty) && (b.lat != 0) && (b.lon != 0))                    
+                {
+                    b.SetAIS();
+                    b.green = true;
+                    BroadcastAIS(b.AISNMEA);
+                };
+            };
+        }
+
+        private bool OnFRSClient(ClientData cd, string pairstring)
         {
             byte[] ba = Encoding.ASCII.GetBytes("# " + softver);
             try { cd.stream.Write(ba, 0, ba.Length); } catch { };
@@ -309,19 +533,19 @@ namespace OruxPals
             {
                 string phone = rx.Groups[2].Value;
                 //string imei = rx.Groups[3].Value;                
-                if(frnusers != null) 
-                    foreach(OruxPalsServerConfig.FRNUser u in frnusers)
+                if(regUsers != null) 
+                    foreach(OruxPalsServerConfig.RegUser u in regUsers)
                         if (u.phone == phone)
                         {
                             cd.state = 5;
-                            cd.AdditData = u.name;
+                            cd.user = u.name;
                             return true;
                         };
             };
             return false;
         }
 
-        private void OnFRNData(ClientData cd, string line)
+        private void OnFRSData(ClientData cd, string line)
         {
             Match rx;
 
@@ -368,7 +592,7 @@ namespace OruxPals
                            double rHeading = double.Parse(sHeading, System.Globalization.CultureInfo.InvariantCulture);
                            double rSpeed = double.Parse(sSpeed, System.Globalization.CultureInfo.InvariantCulture) * 1.852;
 
-                           Buddie b = new Buddie(4, (string)cd.AdditData, rLat, rLon, (short)rSpeed, (short)rHeading);
+                           Buddie b = new Buddie(4, cd.user, rLat, rLon, (short)rSpeed, (short)rHeading);
                            OnNewData(b);
                        };
                    };
@@ -382,52 +606,16 @@ namespace OruxPals
                };
             };
         }
-
-        private static string ChecksumHex(string str)
-        {
-            int checksum = 0;
-            for (int i = 1; i < str.Length; i++)
-                checksum ^= Convert.ToByte(str[i]);
-            return checksum.ToString("X2");
-        }
-
-        private static string ChecksumAdd2Line(string line)
-        {
-            return line + "*" + ChecksumHex(line);
-        }
-
-        // Receive incoming messages from APRS client
-        private void onAPRStypeMessage(ClientData cd, string line)
-        {
-            string frm = line.Substring(0, line.IndexOf(">"));
-            string msg = line.Substring(line.IndexOf("::") + 12).Trim();
-
-            bool sendack = false;
-            byte[] tosendack = new byte[0];
-
-            if (msg.Contains("{"))
-            {
-                string cmd2s = "ORXPLS-GW>APRS,TCPIP*::" + frm + ": ack" + msg.Substring(msg.IndexOf("{") + 1) + "\r\n";
-                msg = msg.Substring(0, msg.IndexOf("{")).Trim();
-                tosendack = Encoding.ASCII.GetBytes(cmd2s);                
-            };
-
-            if (line.IndexOf("::ORXPLS-GW:") > 0) // ping 
-                sendack = true;                
-
-            if (sendack && (tosendack.Length > 0))
-                try { cd.stream.Write(tosendack, 0, tosendack.Length); } catch { };
-        }
-
+                
         private void OnGet(ClientData cd, string rxText)
         {
             cd.state = 2;
             int hi = rxText.IndexOf("HTTP");
-            if (hi <= 0) return;
+            if (hi <= 0) { HTTPClientSendError(cd.client, 400); return; };
             string query = rxText.Substring(4, hi - 4).Trim();
             if (!IsValidQuery(query))
             {
-                HttpClientSendError(cd.client, 404);
+                HTTPClientSendError(cd.client, 404);
                 return;
             };
             switch(query[10])
@@ -448,9 +636,8 @@ namespace OruxPals
                     OnView(cd, query.Substring(11));
                     return;
                 default:
-                    HttpClientSendError(cd.client, 403);
+                    HTTPClientSendError(cd.client, 403);
                     return;
-
             };
         }
 
@@ -477,7 +664,8 @@ namespace OruxPals
             }
             else
             {
-                HttpClientSendError(cd.client, 403);
+                HTTPClientSendError(cd.client, 403);
+                return;
             };
         }
 
@@ -506,8 +694,9 @@ namespace OruxPals
                         addit += String.Format("Position: {0} {1}\r\n<br/>", b.lat, b.lon);
                         addit += String.Format("Speed: {0} kmph\r\n<br/>", b.speed);
                         addit += String.Format("Heading: {0}&deg;\r\n<br/>", b.course);
-                        addit += String.Format("<a href=\"https://yandex.ru/maps/?text={1},{0}\" target=\"_blank\"><img src=\"http://static-maps.yandex.ru/1.x/?ll={0},{1}&size=500,300&z=13&l=map&pt={0},{1},vkbkm\"/></a>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                        addit += String.Format("<a href=\"https://yandex.ru/maps/?text={1},{0}\" target=\"_blank\"><img src=\"http://static-maps.yandex.ru/1.x/?ll={0},{1}&size=500,300&z=15&l=map&pt={0},{1},vkbkm\"/></a>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                        addit += String.Format("<a href=\"" + urlPath + "view#{2}\" target=\"_blank\"><img src=\"http://static-maps.yandex.ru/1.x/?ll={0},{1}&size=500,300&z=13&l=map&pt={0},{1},vkbkm\"/></a>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
+                        addit += String.Format("<a href=\"" + urlPath + "view#{2}\" target=\"_blank\"><img src=\"http://static-maps.yandex.ru/1.x/?ll={0},{1}&size=500,300&z=15&l=map&pt={0},{1},vkbkm\"/></a>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
+                        addit += String.Format("<br/><small><a href=\"https://yandex.ru/maps/?text={1},{0}\" target=\"_blank\">view on yandex</a> | <a href=\"http://maps.google.com/?q={1}+{0}\" target=\"_blank\">view on google</a><small>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
                     };
             };
 
@@ -521,55 +710,136 @@ namespace OruxPals
                     if (ci.state == 4) cAPRS++;
                     if (ci.state == 5) cFRS++;
                 };
-            int bc = 0;
-            string allbds = "";
+            int bc = 0, rbc = 0;
+            string rbds = "";
+            string ubds = "";
             if (BUDS != null)
             {
                 Buddie[] all = BUDS.Current;
-                bc = all.Length;
-                foreach (Buddie b in all) allbds += "<a href=\"" + urlPath + "i/" + b.name + "\">" + b.name + "</a> ";
+                bc = all.Length;                
+                foreach (Buddie b in all)
+                {
+                    bool isreg = false;
+                    if(regUsers != null)
+                        foreach(OruxPalsServerConfig.RegUser u in regUsers)
+                            if (u.name == b.name)
+                            {
+                                isreg = true;
+                                rbc++;
+                                break;
+                            };
+                    if(isreg)
+                      rbds += "<a href=\"" + urlPath + "i/" + b.name + "\">" + b.name + "</a> ";
+                    else
+                      ubds += "<a href=\"" + urlPath + "i/" + b.name + "\">" + b.name + "</a> ";
+                };
+                if (rbds.Length > 0) rbds = "Registered: " + rbds + "\r\n<br/>";
+                if (ubds.Length > 0) ubds = "Unregistered: " + ubds + "\r\n<br/>";
             };
+            string fsvc = "";
+            if (aprsgw != null)
+            {
+                int uc = 0;
+                if(regUsers != null)
+                    foreach(OruxPalsServerConfig.RegUser u in regUsers)
+                        if((u.forward != null) && (u.forward.Contains("A"))) uc++;
+                fsvc += String.Format("&nbsp; &nbsp; APRS-IS Gateway with {1} clients: {0}\r\n<br/>", aprsgw.State, uc);
+            };
+            if (forwardServices != null)
+                foreach (OruxPalsServerConfig.FwdSvc svc in forwardServices)
+                    if (svc.forward == "yes")
+                    {
+                        int uc = 0;
+                        if (regUsers != null)
+                            foreach (OruxPalsServerConfig.RegUser u in regUsers)
+                                if ((u.forward != null) && (u.forward.Contains(svc.name))) uc++;
+                        fsvc += "&nbsp; &nbsp; " + String.Format("{0} as {1} with {2} clients\r\n<br/>", svc.name, svc.type, uc);
+                    };
             HTTPClientSendResponse(cd.client, String.Format(
                 "Server: {0}\r\n<br/>" +
                 "Port: {4}\r\n<br/>" +
                 "Started {1} UTC\r\n<br/>" +
-                "AIS Clients: {2}\r\n<br/>" +
-                "APRS Clients: {7}\r\n<br/>" +
-                "FRS Clients: {8}\r\n<br/>" +
-                "Buddies: {3} {6} \r\n<br/>" +                
-                "APRS URL: 127.0.0.1:{4}\r\n<br/>" +
-                "FRS URL (GPSGate Tracker): 127.0.0.1:{4}\r\n<br/>" +
-                "OruxMaps AIS URL: 127.0.0.1:{4}\r\n<br/>" +
-                "OruxMaps GPSGate URL: http://127.0.0.1:{4}{5}@"+user+"/\r\n<br/>" +
-                "OruxMaps MapMyTracks URL: http://127.0.0.1:{4}{5}m/\r\n<br/>" +
-                "<a href=\"{5}view\">View Online Map</a>\r\n<br/>\r\n<br/>" +
+                "<a href=\"{5}view\">Map View</a>\r\n<br/><br/>" +                
+                "Clients AIS/APRS/FRS: {2} / {7} / {8}\r\n<br/>" +
+                "Buddies Online/Registered/Unregistered: {3}\r\n<br/>" +
+                "{6}\r\n<br/>" +
+                "Forward Services:\r\b<br/>"+
+                "{9}\r\n<br/>"+
+                "Client connect Information:\r\n<br/>" +                
+                "&nbsp; &nbsp; OruxMaps\r\n<br/>" +
+                "&nbsp; &nbsp; &nbsp; &nbsp; AIS URL: "+infoIP+":{4}\r\n<br/>" +
+                "&nbsp; &nbsp; &nbsp; &nbsp; GPSGate URL: http://"+infoIP+":{4}{5}@" + user + "/\r\n<br/>" +
+                "&nbsp; &nbsp; &nbsp; &nbsp; MapMyTracks URL: http://"+infoIP+":{4}{5}m/\r\n<br/>" +
+                "&nbsp; &nbsp; APRS URL (APRSDroid): "+infoIP+":{4}\r\n<br/>" +
+                "&nbsp; &nbsp; FRS URL (GPSGate Tracker): "+infoIP+":{4}\r\n<br/>" +
+                "<hr/>"+
                 addit,
                 new object[] { 
                 softver, 
                 started, 
                 cAIS, 
-                bc,
+                bc.ToString()+" / " + rbc.ToString()+" / " + (bc - rbc).ToString(),
                 ListenPort,
                 urlPath,
-                allbds,
+                rbds + ubds,
                 cAPRS,
-                cFRS}));
+                cFRS,
+                fsvc
+                }));
+        }
+
+        private void OnView(ClientData cd, string query)
+        {
+            string[] ss = query.Split(new char[] { '/' }, 2);
+            string prf = ss[0];
+            string ptf = "";
+            if (ss.Length > 1) ptf = ss[1];
+
+            if (prf == "list")
+            {
+                string cdata = "";
+                if (BUDS != null)
+                {
+                    Buddie[] bs = BUDS.Current;
+                    foreach (Buddie b in bs)
+                    {
+                        string src = "Unknown";
+                        if (b.source == 1) src = "OruxMaps GPSGate";
+                        if (b.source == 2) src = "OruxMaps MapMyTracks";
+                        if (b.source == 3) src = "APRS Client";
+                        if (b.source == 4) src = "FRS (GPSGate Tracker)";
+                        cdata += (cdata.Length > 0 ? "," : "") + "{" + String.Format("user:'{0}',received:'{1}',lat:{2},lon:{3},speed:{4},hdg:{5},source:'{6}'",
+                            new object[] { b.name, b.last, b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.speed, b.course, src }) + "}";
+                    };
+                };
+                cdata = "[" + cdata + "]";
+                HTTPClientSendResponse(cd.client, cdata);
+            }
+            else
+            {
+                if (ptf == "")
+                    HTTPClientSendFile(cd.client, "map.html");
+                else
+                    HTTPClientSendFile(cd.client, ptf);
+            };
         }
 
         private void OnCmd(ClientData cd, string query)
         {
             int s2f = query.IndexOf("/?cmd=");
-            if (s2f < 3) return;
+            if (s2f < 3) { HTTPClientSendError(cd.client, 403); return; };
             string user = query.Substring(0, s2f).ToUpper();
-            if (!Buddie.BuddieNameRegex.IsMatch(user)) { HttpClientSendError(cd.client, 417); };
+            if (!Buddie.BuddieNameRegex.IsMatch(user)) { HTTPClientSendError(cd.client, 403); return; };
             string cmd = query.Substring(s2f + 6);
 
             string[] pData = cmd.Split(new string[] { "," }, StringSplitOptions.None);
-            if (pData.Length < 13) { HttpClientSendError(cd.client, 417); };
-            if (pData[2] != "_SendMessage") { HttpClientSendError(cd.client, 417); };
+            if (pData.Length < 13) { HTTPClientSendError(cd.client, 417); return; };
+            if (pData[2] != "_SendMessage") { HTTPClientSendError(cd.client, 417); return; };
             int pass = 0;
-            if (!int.TryParse(pData[1], out pass)) { HttpClientSendError(cd.client, 417); };
-            if (Buddie.Hash(user) != pass) { HttpClientSendError(cd.client, 403); };
+            if (!int.TryParse(pData[1], out pass)) { HTTPClientSendError(cd.client, 417); return; };
+            if (Buddie.Hash(user) != pass) { HTTPClientSendError(cd.client, 403); return; };
+
+            cd.user = user;
 
             // PARSE //
             try
@@ -601,18 +871,18 @@ namespace OruxPals
                 Buddie b = new Buddie(1, user, lat, lon, (short)speed, (short)heading);
                 OnNewData(b);
             }
-            catch { HttpClientSendError(cd.client, 417); };
+            catch { HTTPClientSendError(cd.client, 417); return; };
         }
 
         private void OnPost(ClientData cd, string rxText)
         {
             cd.state = 3;
             int hi = rxText.IndexOf("HTTP");
-            if (hi <= 0) return;
+            if (hi <= 0) { HTTPClientSendError(cd.client, 400); return; };
             string query = rxText.Substring(5, hi - 5).Trim();
             if (!IsValidQuery(query))
             {
-                HttpClientSendError(cd.client, 404);
+                HTTPClientSendError(cd.client, 404);
                 return;
             };
             if (query[10] == 'm')
@@ -620,7 +890,7 @@ namespace OruxPals
                 OnMMT(cd, rxText);
                 return;
             };
-            HttpClientSendError(cd.client, 417);
+            HTTPClientSendError(cd.client, 403);
         }
 
         private void OnMMT(ClientData cd, string rxText)
@@ -657,6 +927,8 @@ namespace OruxPals
                 return;
             };
 
+            cd.user = user;
+
             System.Collections.Specialized.NameValueCollection ask = null;
             int db = rxText.IndexOf("\r\n\r\n");
             if (db > 0)
@@ -667,7 +939,7 @@ namespace OruxPals
                 if (db > 0)
                     ask = HttpUtility.ParseQueryString(rxText.Substring(db + 2));
                 else
-                { HttpClientSendError(cd.client, 415); return; };
+                { HTTPClientSendError(cd.client, 415); return; };
             };
 
             if ((ask["request"] == "start_activity") || (ask["request"] == "update_activity"))
@@ -695,6 +967,7 @@ namespace OruxPals
                         OnNewData(b);
                     };
                 };
+
                 return;
             };
             if (ask["request"] == "stop_activity")
@@ -712,59 +985,86 @@ namespace OruxPals
             return;
         }
 
-        private void OnView(ClientData cd, string query)
+        private bool CheckRegisteredUser(Buddie buddie)
         {
-            string[] ss = query.Split(new char[] { '/' }, 2);
-            string prf = ss[0];
-            string ptf = "";
-            if (ss.Length > 1) ptf = ss[1];
-
-            if (prf == "list")
-            {
-                string cdata = "";
-                if (BUDS != null)
-                {
-                    Buddie[] bs = BUDS.Current;
-                    foreach (Buddie b in bs)
+            if (regUsers != null)
+                foreach (OruxPalsServerConfig.RegUser u in regUsers)
+                    if (u.name == buddie.name)
                     {
-                        string src = "Unknown";
-                        if (b.source == 1) src = "OruxMaps GPSGate";
-                        if (b.source == 2) src = "OruxMaps MapMyTracks";
-                        if (b.source == 3) src = "APRS Client";
-                        if (b.source == 4) src = "FRS (GPSGate Tracker)";
-                        cdata += (cdata.Length > 0 ? "," : "") + "{" + String.Format("user:'{0}',received:'{1}',lat:{2},lon:{3},speed:{4},hdg:{5},source:'{6}'",
-                            new object[] { b.name, b.last, b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.speed, b.course, src }) + "}";
+                        buddie.regUser = u;
+                        return true;
                     };
-                };
-                cdata = "["+cdata+"]";
-                HTTPClientSendResponse(cd.client, cdata);
-            }
-            else
-            {
-                if (ptf == "")
-                    HTTPClientSendFile(cd.client, "map.html");
-                else
-                    HTTPClientSendFile(cd.client, ptf);
-            };
+            return false;
         }
-
+       
         private void OnNewData(Buddie buddie)
         {
+            CheckRegisteredUser(buddie);           
+
             if (BUDS != null)
                 BUDS.Update(buddie);
+
+            //forward data
+            if ((buddie.regUser != null) && (buddie.regUser.forward != null) && (buddie.regUser.forward.Length > 0) && (buddie.regUser.services != null) && (buddie.regUser.services.Length > 0))
+            {
+                // forward to APRS Global
+                if ((aprsgw != null) && (aprscfg.any2global == "yes") && (buddie.source != 3) && (buddie.regUser.forward.Contains("A")))
+                {
+                    foreach (OruxPalsServerConfig.RegUserSvc svc in buddie.regUser.services)
+                        if (svc.names.Contains("A"))
+                        {
+                            string comment = "#ORXPLS" + buddie.source.ToString() + " ";
+                            if (buddie.source == 1) comment = "#ORXPLSg ";
+                            if (buddie.source == 2) comment = "#ORXPLSm ";
+                            if (buddie.source == 3) comment = "#ORXPLSa ";
+                            if (buddie.source == 4) comment = "#ORXPLSf ";
+                            if (svc.comment != null) comment += svc.comment;
+                            string aprs = buddie.APRS.Replace(buddie.name + ">", svc.id + ">").Replace("\r\n", comment + "\r\n");
+                            aprsgw.SendCommandWithDelay(svc.id, aprs);
+                        };
+                };
+
+                // forward to Web services
+                if((forwardServices != null) && (forwardServices.Length > 0))
+                {
+                    string toFwd = buddie.regUser.forward;
+                    for (int i = 0; i < toFwd.Length; i++)
+                    {
+                        string l = toFwd[i].ToString();
+                        string id = null;
+                        foreach (OruxPalsServerConfig.RegUserSvc svc in buddie.regUser.services)
+                            if (svc.names.Contains(l))
+                                id = svc.id;
+                        if (id != null)
+                            foreach (OruxPalsServerConfig.FwdSvc fs in forwardServices)
+                                if ((fs.name == l) && (fs.forward == "yes"))
+                                    ForwardData2WebServices(fs, buddie, id);
+                    };
+                };
+            };                      
+        }
+
+        public void BroadcastAIS(BroadCastInfo bdata)
+        {
+            Broadcast(bdata.data, bdata.user, true, false);
         }
 
         public void BroadcastAIS(byte[] data)
         {
-            Broadcast(data, true, false);
+            Broadcast(data, "", true, false);
+        }
+
+        public void BroadcastAPRS(BroadCastInfo bdata)
+        {
+            Broadcast(bdata.data, bdata.user, false, true);
         }
 
         public void BroadcastAPRS(byte[] data)
         {
-            Broadcast(data, false, true);
+            Broadcast(data, "", false, true);
         }
 
-        public void Broadcast(byte[] data, bool bAIS, bool bAPRS)
+        public void Broadcast(byte[] data, string fromUser, bool bAIS, bool bAPRS)
         {
             List<ClientData> cdlist = new List<ClientData>();
             lock (clientList)
@@ -772,13 +1072,53 @@ namespace OruxPals
                 {
                     if (obj == null) continue;
                     ClientData cd = (ClientData)obj;
-                    if (((cd.state == 1) && bAIS) || ((cd.state == 4) && bAPRS))
+                    if ((cd.state == 1) && bAIS)
                         cdlist.Add(cd);
+                    if ((cd.state == 4)  && bAPRS)
+                    {
+                        if (sendBack)
+                            cdlist.Add(cd);
+                        else if (fromUser != cd.user)
+                            cdlist.Add(cd);
+                    };
                 };
 
             foreach (ClientData cd in cdlist)
                 try { cd.client.GetStream().Write(data, 0, data.Length); }
                 catch { };
+        }
+
+        private void ForwardData2WebServices(OruxPalsServerConfig.FwdSvc svc, Buddie buddie, string id)
+        {
+            try
+            {
+                switch (svc.type)
+                {
+                    case "m":
+                        {
+                            // Meitrack GT60 packet
+                            string[] x;// [IP,PORT]
+                            x = svc.ipp.Split(new string[] { ":" }, StringSplitOptions.RemoveEmptyEntries);
+                            SendTCP(x[0], Convert.ToInt32(x[1]), GetPacketText_Meitrack_GT60_Protocol(buddie, id));
+                        };
+                        break;
+                    case "x":
+                        {
+                            // Xenun TK-102B packet
+                            string[] x;// [IP,PORT]
+                            x = svc.ipp.Split(new string[] { ":" }, StringSplitOptions.RemoveEmptyEntries);
+                            SendTCP(x[0], Convert.ToInt32(x[1]), GetPacketText_TK102B_Normal(buddie, id));
+                        };
+                        break;
+                    case "o":
+                        {
+                            // OpenGPS
+                            SendHTTP(svc.ipp + GetPacketText_OpenGPSNET_HTTPReq(buddie, id));
+                        };
+                        break;
+                };
+            }
+            catch { };
         }
 
         private bool IsValidQuery(string query)
@@ -788,6 +1128,141 @@ namespace OruxPals
             if (subQuery != urlPath) return false;
             return true;
         }
+
+        private static string ChecksumHex(string str)
+        {
+            int checksum = 0;
+            for (int i = 1; i < str.Length; i++)
+                checksum ^= Convert.ToByte(str[i]);
+            return checksum.ToString("X2");
+        }
+
+        private static string ChecksumAdd2Line(string line)
+        {
+            return line + "*" + ChecksumHex(line);
+        }
+
+        private static string GetPacketText_Meitrack_GT60_Protocol(Buddie tr, string id)
+        {
+            // Meitrack GT60 Protocol
+            //   $$<packageflag><L>,<IMEI>,<command>,<event_code>,<(-)yy.dddddd>,<(-)xxx.dddddd>,<yymmddHHMMSS>,
+            //      <Z(A-ok/V-bad)>,<N(sat count)>,<G(GSM signal)>,<Speed>,<Heading>,<HDOP>,<Altitude>,<Journey>,<Runtime>,<Base ID>,<State>,<AD>,<*checksum>\r\n 
+            //   $$A,IMEI,AAA,35,55.450000,037,390000,140214040000,
+            //      A,5,60,359,5,118,0,0,MCC|MNC|LAC|CI(460|0|E166|A08B),0000,0,<*checksum>\r\n 
+            //
+            // Example packet length & checksum: 
+            //   $$E28,353358017784062,A15,OK*F4\r\n 
+
+            string packet_prefix = "$$A";
+            string packet_data = "," + id + ",AAA,35," + tr.lat.ToString("00.000000").Replace(",", ".") + "," + tr.lon.ToString("000.000000").Replace(",", ".") + "," + DateTime.UtcNow.ToString("yyMMddHHmmss") + "," +
+                "A,5," +/*GSM SIGNAL*/DateTime.UtcNow.ToString("HHmmss") + "," + ((int)tr.speed).ToString() + "," + ((int)tr.course).ToString() + ",5,0,0,0," +
+                // base
+                ",0000,0," + "*";
+            string checksum_packet = packet_prefix + (packet_data.Length + 4).ToString() + packet_data;
+            byte cs = 0;
+            for (int i = 0; i < checksum_packet.Length; i++) cs += (byte)checksum_packet[i];
+            string full_data = checksum_packet + cs.ToString("X") + "\r\n";
+
+            return full_data;
+        }
+
+        private static string GetPacketText_TK102B_Normal(Buddie tr, string id)
+        {
+            return GetPacketText_TK102B_Normal(DateTime.UtcNow, id, tr.lat, tr.lon, tr.speed, tr.course, 0);
+        }
+
+        private static string GetPacketText_OpenGPSNET_HTTPReq(Buddie tr, string id)
+        {
+            return GetPacketText_OpenGPSNET_HTTPReq(id, tr.lat, tr.lon, tr.speed, tr.course, 0);
+        }
+
+        private static string GetPacketText_OpenGPSNET_HTTPReq(string imei, double lat, double lon, double speed, double heading, double altitude)
+        {
+            Random rnd = new Random();
+
+            if (lat == 0) lat = 55.54404 + (0.5 - rnd.NextDouble()) / 10;
+            if (lon == 0) lon = 37.55860 + (0.5 - rnd.NextDouble()) / 10;
+            if (speed < 0) speed = 10; // kmph
+            if (heading < 0) heading = rnd.Next(0, 359);
+            if (altitude < 0) altitude = 251;
+
+            //http://www.opengps.net/configure.php
+            return
+                "&imei=" + imei + "&data=" +
+                DateTime.UtcNow.ToString("HHmmss") + ".000," +
+                Math.Truncate(lat).ToString("00") + ((lat - Math.Truncate(lat)) * 60).ToString("00.0000").Replace(",", ".") + "N," + // Lat
+                Math.Truncate(lon).ToString("000") + ((lon - Math.Truncate(lon)) * 60).ToString("00.0000").Replace(",", ".") + "E," + // Lon
+                "2.6," + // HDOP
+                altitude.ToString("0.0").Replace(",", ".") + "," + // altitude
+                "3," + // 0 - noFix, 2-2D,3-3D
+                heading.ToString("000.00").Replace(",", ".") + "," + //heading
+                speed.ToString("0.0").Replace(",", ".") + "," + // kmph
+                (speed / 1.852).ToString("0.0").Replace(",", ".") + "," + // knots
+                DateTime.UtcNow.ToString("ddMMyy") + "," + // date
+                "12" // sat count
+                ;
+            ;
+        }
+
+        private static string GetPacketText_TK102B_Normal(DateTime dt, string imei, double lat, double lon, double speed, double heading, double altitude)
+        {
+            Random rnd = new Random();
+
+            if (lat == 0) lat = 55.54404 + (0.5 - rnd.NextDouble()) / 10;
+            if (lon == 0) lon = 37.55860 + (0.5 - rnd.NextDouble()) / 10;
+            if (speed < 0) speed = 10; // kmph
+            if (heading < 0) heading = rnd.Next(0, 359);
+            if (altitude < 0) altitude = 251;
+            return
+                dt.ToString("yyMMddHHmmss") + "," + //Serial no.(year, month, date, hour, minute, second )
+                "0," + // Authorized phone no.
+                "GPRMC," + // begin GPRMC sentence
+                dt.ToString("HHmmss") + ".000,A," + // Time
+                Math.Truncate(lat).ToString("00") + ((lat - Math.Truncate(lat)) * 60).ToString("00.0000").Replace(",", ".") + ",N," + // Lat
+                Math.Truncate(lon).ToString("000") + ((lon - Math.Truncate(lon)) * 60).ToString("00.0000").Replace(",", ".") + ",E," + // Lon
+                (speed / 1.852).ToString("0.00").Replace(",", ".") + "," +//Speed in knots
+                heading.ToString("0").Replace(",", ".") + "," +//heading
+                dt.ToString("ddMMyy") + ",,,A*62," +// Date
+                "F," +//F=GPS signal is full, if it indicate " L ", means GPS signal is low
+                "imei:" + imei + "," + //imei
+                // CRC
+                "05," +// GPS fix (03..10)
+                altitude.ToString("0.0").Replace(",", ".") //altitude
+                //",F:3.79V,0"//0-tracker not charged,1-charged
+                // ",122,13990,310,01,0AB0,345A" //
+            ;
+
+            // lat: 5722.5915 -> 57 + (22.5915 / 60) = 57.376525
+        }
+
+        private static void SendTCP(string IP, int Port, string data)
+        {
+            try
+            {
+                TcpClient tc = new TcpClient();
+                tc.Connect(IP, Port);
+                byte[] buf = System.Text.Encoding.GetEncoding(1251).GetBytes(data);
+                tc.GetStream().Write(buf, 0, buf.Length);
+                tc.Close();
+            }
+            catch (Exception ex) { throw ex; };
+        }
+
+        private static void SendHTTP(string query)
+        {
+            try
+            {
+                System.Net.HttpWebRequest wr = (System.Net.HttpWebRequest)System.Net.HttpWebRequest.Create(query);
+                System.Net.WebResponse rp = wr.GetResponse();
+                System.IO.Stream ss = rp.GetResponseStream();
+                System.IO.StreamReader sr = new System.IO.StreamReader(ss);
+                string rte = sr.ReadToEnd();
+                sr.Close();
+                ss.Close();
+                rp.Close();
+            }
+            catch (Exception ex) { throw ex; };
+        }        
 
         private static bool IsConnected(TcpClient Client)
         {
@@ -842,7 +1317,7 @@ namespace OruxPals
             string ffn = OruxPalsServerConfig.GetCurrentDir() + @"\MAP\" + fileName;
             if (!File.Exists(ffn))
             {
-                HttpClientSendError(Client, 404);
+                HTTPClientSendError(Client, 404);
                 return;
             };
 
@@ -872,7 +1347,7 @@ namespace OruxPals
             Client.Close();
         }
 
-        private static void HttpClientSendError(TcpClient Client, int Code)
+        private static void HTTPClientSendError(TcpClient Client, int Code)
         {
             string CodeStr = Code.ToString() + " " + ((HttpStatusCode)Code).ToString();
             string Html = "<html><body><h1>" + CodeStr + "</h1></body></html>";
@@ -919,25 +1394,59 @@ namespace OruxPals
                 this.stream = client.GetStream();
             }
 
-            public object AdditData;
+            public string user = "unknown";
         }
     }
 
     [Serializable]
     public class OruxPalsServerConfig
     {
-        public class FRNUsers
-        {            
-            [XmlElement("u")]
-            public FRNUser[] users;
+        public class RegUserSvc
+        {
+            [XmlAttribute]
+            public string names = "";
+            [XmlAttribute]
+            public string id = "";
+            [XmlAttribute]
+            public string comment = "";            
         }
 
-        public class FRNUser
+        public class RegUsers
+        {            
+            [XmlElement("u")]
+            public RegUser[] users;
+        }
+
+        public class RegUser
         {
             [XmlAttribute]
             public string name;
             [XmlAttribute]
             public string phone;
+            [XmlAttribute]
+            public string forward;
+            [XmlAttribute]
+            public string aprssymbol = "/>";
+            [XmlElement("service")]
+            public RegUserSvc[] services;
+        }
+
+        public class FwdSvcs
+        {
+            [XmlElement("service")]
+            public FwdSvc[] services;
+        }
+
+        public class FwdSvc
+        {
+            [XmlAttribute]
+            public string name = "";
+            [XmlAttribute]
+            public string type = "?";
+            [XmlAttribute]
+            public string forward = "no";
+            [XmlText]
+            public string ipp = "127.0.0.1:0";
         }
 
         public int ListenPort = 12015;
@@ -946,8 +1455,14 @@ namespace OruxPals
         public ushort greenMinutes = 60;
         public string urlPath = "oruxpals";
         public string adminName = "ADMIN";
+        public string sendBack = "no";
+        public string infoIP = "127.0.0.1";
         [XmlElement("users")]
-        public FRNUsers users;
+        public RegUsers users;
+        [XmlElement("APRSIS")]
+        public APRSISConfig aprsis;
+        [XmlElement("forwardServices")]
+        public FwdSvcs forwardServices;
 
         public static OruxPalsServerConfig LoadFile(string file)
         {

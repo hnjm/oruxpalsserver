@@ -8,7 +8,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyTitle("OruxPalsServer")]
 [assembly: AssemblyDescription("OruxPals Tracking Server")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("")]
+[assembly: AssemblyCompany("dkxce@mail.ru")]
 [assembly: AssemblyProduct("OruxPalsServer")]
 [assembly: AssemblyCopyright("Copyright © dkxce@mail.ru 2017")]
 [assembly: AssemblyTrademark("")]
@@ -29,5 +29,5 @@ using System.Runtime.InteropServices;
 //      Build Number
 //      Revision
 //
-[assembly: AssemblyVersion("17.1.31.3")]
-[assembly: AssemblyFileVersion("17.1.31.3")]
+[assembly: AssemblyVersion("17.2.1.5")]
+[assembly: AssemblyFileVersion("17.2.1.5")]

@@ -12,18 +12,30 @@ using System.Xml.Serialization;
 
 namespace OruxPals
 {
+    public struct BroadCastInfo
+    {
+        public string user;
+        public byte[] data;
+
+        public BroadCastInfo(string user, byte[] data)
+        {
+            this.user = user;
+            this.data = data;
+        }
+    }
+
     public class Buddies
     {        
         private List<Buddie> buddies = new List<Buddie>();
-        private List<byte[]> broadcastAIS = new List<byte[]>();
-        private List<byte[]> broadcastAPRS = new List<byte[]>();
+        private List<BroadCastInfo> broadcastAIS = new List<BroadCastInfo>();
+        private List<BroadCastInfo> broadcastAPRS = new List<BroadCastInfo>();
 
         private bool keepAlive = true;
 
         private byte maxHours = 48;
         private ushort greenMinutes = 60;
 
-        public delegate void BroadcastMethod(byte[] data);
+        public delegate void BroadcastMethod(BroadCastInfo bdata);
         public BroadcastMethod onBroadcastAIS;
         public BroadcastMethod onBroadcastAPRS;
 
@@ -48,25 +60,29 @@ namespace OruxPals
 
         public void Update(Buddie buddie)
         {
-            if(buddie == null) return;            
-
+            if(buddie == null) return;
+            
             lock (buddies)
             {
                 if (buddies.Count > 0)
                     for (int i = buddies.Count - 1; i >= 0; i--)
                         if (buddie.name == buddies[i].name)
+                        {
+                            buddie.ID = buddies[i].ID;
                             buddies.RemoveAt(i);
+                        };
 
+                if (buddie.ID == 0) buddie.ID = ++Buddie._id;
                 buddies.Add(buddie);                
             };
 
             buddie.SetAIS();                        
             lock (broadcastAIS) 
-                broadcastAIS.Add(buddie.AISNMEA);
+                broadcastAIS.Add(new BroadCastInfo(buddie.name, buddie.AISNMEA));
 
             buddie.SetAPRS();
             lock (broadcastAPRS)
-                broadcastAPRS.Add(buddie.APRSData);
+                broadcastAPRS.Add(new BroadCastInfo(buddie.name, buddie.APRSData));
         }
 
         public Buddie[] Current
@@ -126,41 +142,41 @@ namespace OruxPals
                 int bc = broadcastAIS.Count;
                 while (bc > 0)
                 {
-                    byte[] data;
+                    BroadCastInfo bdata;
                     lock (broadcastAIS)
                     {
-                        data = broadcastAIS[0];
+                        bdata = broadcastAIS[0];
                         broadcastAIS.RemoveAt(0);                        
                     };
                     bc--;
-                    BroadcastAIS(data);
+                    BroadcastAIS(bdata);
                 };
                 bc = broadcastAPRS.Count;
                 while (bc > 0)
                 {
-                    byte[] data;
+                    BroadCastInfo bdata;
                     lock (broadcastAPRS)
                     {
-                        data = broadcastAPRS[0];
+                        bdata = broadcastAPRS[0];
                         broadcastAPRS.RemoveAt(0);
                     };
                     bc--;
-                    BroadcastAPRS(data);
+                    BroadcastAPRS(bdata);
                 };
                 Thread.Sleep(1000);
             };
         }
 
-        private void BroadcastAIS(byte[] data)
+        private void BroadcastAIS(BroadCastInfo bdata)
         {
             if (onBroadcastAIS != null)
-                onBroadcastAIS(data);
+                onBroadcastAIS(bdata);
         }
 
-        private void BroadcastAPRS(byte[] data)
+        private void BroadcastAPRS(BroadCastInfo bdata)
         {
             if (onBroadcastAPRS != null)
-                onBroadcastAPRS(data);
+                onBroadcastAPRS(bdata);
         }
     }
 
@@ -168,7 +184,7 @@ namespace OruxPals
     {
         public static Regex BuddieNameRegex = new Regex("^([A-Z0-9]{3,9})$");
 
-        private static ulong _id = 0;
+        internal static ulong _id = 0;
         internal ulong ID = 0;
 
         public byte source; // 0 - unknown; 1 - GPSGate Format; 2 - MapMyTracks Format; 3 - APRS; 4 - FRS
@@ -204,11 +220,11 @@ namespace OruxPals
         public string APRS = "";
         public byte[] APRSData = null;
 
-        public object data;
+        public OruxPalsServerConfig.RegUser regUser;
 
         public Buddie(byte source, string name, double lat, double lon, short speed, short course)
         {
-            this.ID = _id++;
+            this.ID = 0;
             this.source = source;
             this.name = name;            
             this.lat = lat;
@@ -239,14 +255,21 @@ namespace OruxPals
 
         internal void SetAPRS()
         {
+            if (this.source == 3) return;
+
+            string symbol = "/" + (ID % 10).ToString();
+            if ((this.regUser != null) && (this.regUser.aprssymbol != null) && (this.regUser.aprssymbol != String.Empty))
+                symbol = this.regUser.aprssymbol;
+            if (symbol.Length == 1) symbol = "/" + symbol;
+
             APRS =
                 name + ">APRS,TCPIP*:=" + // Position without timestamp + APRS message
                 Math.Truncate(lat).ToString("00") + ((lat - Math.Truncate(lat)) * 60).ToString("00.00").Replace(",", ".") +
                 (lat > 0 ? "N" : "S") +
-                "/" +
+                symbol[0] +
                 Math.Truncate(lon).ToString("000") + ((lon - Math.Truncate(lon)) * 60).ToString("00.00").Replace(",", ".") +
                 (lon > 0 ? "E" : "W") +
-                (ID % 10).ToString() +
+                symbol[1] +
                 course.ToString("000") + "/" + Math.Truncate(speed / 1.852).ToString("000") +
                 "\r\n";
             APRSData = Encoding.ASCII.GetBytes(APRS);
@@ -956,6 +979,9 @@ namespace OruxPals
             if (packet.Length < 2) return null; // invalid packet
 
             Buddie b = new Buddie(3, callsign, 0, 0, 0, 0);
+            b.APRS = line + "\r\n";
+            b.APRSData = Encoding.ASCII.GetBytes(b.APRS);
+
 
             switch (packet[1])
             {

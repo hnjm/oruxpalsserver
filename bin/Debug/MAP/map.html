@@ -19,6 +19,9 @@
 		<div id="caption" style="position:absolute;left:44px;top:10px;"></div>
 	</body>
 	<script>
+		var hashusr = "";
+		if(window.location.hash) hashusr = window.location.hash.substr(1).toUpperCase();
+	
 		var map = L.map('map', {center: [55.7, 37.7], zoom: 10, zoomControl: false, zoomsliderControl: true});
 
 		var project = function (map, crs, latlng) { return crs.latLngToPoint(latlng, map.getZoom()); };
@@ -225,7 +228,7 @@
 		
 		var UpdateStatus = function()
 		{
-			var html = 'Locate user: <input type="text" style="border:solid 1px gray;" id="Locate" onkeyup="onLocate(event)"></input><br/>';
+			var html = 'Locate user: <input type="text" style="border:solid 1px gray;" id="Locate" onkeyup="onLocate(event)" value="'+hashusr+'"></input> <small><a href="#" onclick="onFollow(event)">follow</a> <a href="#" onclick="onReset(event)">reset</a></small><br/>';
 			html += 'On Map: ' + marker_cache.length+', <a href="#" onclick="ClearPaths();return false;" title="Clear Path">Clear paths</a><br/>';		
 			html += '<a href="info">Server Information</a><br/>';
 			document.getElementById('caption').innerHTML = html;
@@ -234,11 +237,23 @@
 		var onLocate = function(e)
 		{
 			if(e.keyCode != 13) return;	
-
-			var usname = document.getElementById('Locate').value.toString().toUpperCase();
+			
+			var usr = document.getElementById('Locate').value.toString().toUpperCase();
 			for(i=0;i<marker_cache.length;i++) 
-				if(marker_cache[i].user == usname)
-					map.setView([marker_cache[i].lat,marker_cache[i].lon]);
+					if(marker_cache[i].user == usr)					
+						map.setView([marker_cache[i].lat,marker_cache[i].lon]);
+		}
+		
+		var onFollow = function(e)
+		{
+			hashusr =  document.getElementById('Locate').value.toString().toUpperCase();
+			Follow();
+		}
+		
+		var onReset = function(e)
+		{
+			document.getElementById('Locate').value = "";
+			hashusr = "";
 		}
 			
 	
@@ -266,6 +281,8 @@
 				if((robj != null) && (robj.length > 0))
 					for (var i=0;i<robj.length;i++)
 						UpdateData(robj[i].user,robj[i].received,robj[i].lat,robj[i].lon,robj[i].speed,robj[i].hdg,robj[i].source);				
+				
+				Follow();
 			});
 			
 			for(i=0;i<marker_cache.length;i++) 
@@ -279,9 +296,19 @@
 			
 			setTimeout(UpdateBuddies,15000);
 		};
+		
+		var Follow = function()
+		{
+			if(hashusr != "")
+			{				
+				for(i=0;i<marker_cache.length;i++) 
+					if(marker_cache[i].user == hashusr)					
+						map.setView([marker_cache[i].lat,marker_cache[i].lon]);
+			};				
+		}
 				
 
 		UpdateStatus();
-		UpdateBuddies();		
+		UpdateBuddies();				
 	</script>
 </html>

@@ -36,6 +36,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="APRSISGateWay.cs" />
     <Compile Include="Buddies.cs" />
     <Compile Include="Program.cs">
       <SubType>Component</SubType>
