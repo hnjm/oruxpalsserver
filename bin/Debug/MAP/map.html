@@ -3,15 +3,17 @@
 		<meta charset="utf-8"/>
 		<meta name="robots" content="noindex, follow"/>
 		<title>OruxPalsServer Map</title>
-		<link rel="stylesheet" href="v/leaflet/leaflet.css" />
+		<link rel="stylesheet" href="v/leaflet/leaflet.css" />		
 		<!--[if lte IE 8]>
 			<link rel="stylesheet" href="v/leaflet/leaflet.ie.css" />
 			<link rel="stylesheet" href="v/leaflet/L.Control.Zoomslider/L.Control.Zoomslider.ie.css" />
 		<![endif]-->		
 		<script src="v/jquery.js"></script>		
-		<script src="v/leaflet/leaflet.js"></script>		
+		<script src="v/leaflet/leaflet.js"></script>				
 		<link rel="stylesheet" href="v/leaflet/L.Control.Zoomslider/L.Control.Zoomslider.css" />		
 		<script src="v/leaflet/L.Control.Zoomslider/L.Control.Zoomslider.js"></script>
+		<link rel="stylesheet" href="v/leaflet/leaflet.label.css" />
+		<script src="v/leaflet/leaflet.label.js"></script>				
 	</head>
 	
 	<body style="margin:0px;padding:0px;">
@@ -165,7 +167,7 @@
 		var marker_cache = [];
 		
 		//	UPDATE CLIENT DATA
-		var UpdateData = function(user,dt,lat,lon,speed,heading,source)
+		var UpdateData = function(user,dt,lat,lon,speed,heading,source,id,age)
 		{
 			var txt = '<div>';
 			txt += 'Last: '+dt+'<br/>';
@@ -173,24 +175,31 @@
 			txt += 'Heading: '+heading+'&deg;<br/>';
 			txt += 'Speed : '+speed+' km/h<br/>';
 			txt += 'Source : '+source+' <br/>';
-			txt += '</div>';
+			txt += '</div>';			
 						
 			for(i=0;i<marker_cache.length;i++) marker_cache[i].marker.closePopup();
 			for(i=0;i<marker_cache.length;i++)
-			{				
+			{	
 				if(marker_cache[i].user == user)
 				{		
 					var mc = marker_cache[i];
 					txt = '<b>'+user+'</b><hr style="font-size:0px;height:1px;border-top:solid 1px gray;"/><div style="width:200px;">' + txt;					
 					
-					if(dt != mc.dt)  {
-						mc.noUpdate = 0; // update timer & data
-						mc.marker.setStyle({color:'black',fillColor:mc.color}); // update icon
+					mc.id = id;
+					mc.age = age;
+					if(dt != mc.dt) 
+					{
+						var ci = Math.round(mc.age / 15);
+						if(ci > 255) ci = 255;
+						var opc = 1 - ci / 450;
+						ci = 'rgb('+ci+','+ci+','+ci+')';
+						$("#usr"+mc.id).parent().css('border-color',ci).css('opacity',opc);;
 					};
 					if((lat != mc.lat) || (lon != mc.lon))  {
 						mc.llarray.push([lat,lon]); // update path					 
-						mc.lat = lat; mc.lon = lon; 
+						mc.lat = lat; mc.lon = lon; 	
 						mc.marker.setLatLng([lat,lon]); // update marker
+						mc.marker.label.setLatLng([lat,lon]);
 					};
 					mc.heading = heading; mc.speed = speed; mc.dt = dt;										
 					mc.marker.bindPopup(txt); // update popup text
@@ -211,16 +220,24 @@
 			
 			///// NEW ///////
 			txt = '<b>'+user+'</b><hr style="font-size:0px;height:1px;border-top:solid 1px gray;"/><div style="width:200px;">' + txt;
-			var mc = {"user":user,"lat":lat,"lon":lon,"heading":heading,"speed":speed,"dt":dt};
+			var mc = {"user":user,"lat":lat,"lon":lon,"heading":heading,"speed":speed,"dt":dt,"id":id,"age":age};
 			mc.follow = false;
 			mc.llarray = [[lat,lon]];
 			mc.line = null;
-			mc.noUpdate = 0; // 0 seconds
-			mc.color = getNextColor(); // color for point
-			mc.marker = new L.CircleMarker([lat,lon],{radius:6,weight:3,color:'black',fillColor:mc.color,opacity:0.85,fillOpacity:0.65});
+			mc.color = colors[id % 10];			
+			mc.icon = new L.DivIcon({className: 'aprs-box aprs' + (id % 10),html: '&nbsp;<span id="usr'+id+'">'+(id % 10)+'</span>'});
+			mc.marker = new L.Marker([lat,lon], {icon: mc.icon});			
 			mc.marker.bindPopup(txt);
-			mc.marker.addTo(map);
-			marker_cache.push(mc);			
+			mc.marker.bindLabel(user, { direction: 'right', noHide:true });
+			mc.marker.addTo(map);	
+			// update border color
+			var ci = Math.round(mc.age / 15);
+			if(ci > 255) ci = 255;
+			var opc = 1 - ci / 450;
+			ci = 'rgb('+ci+','+ci+','+ci+')';
+			$("#usr"+id).parent().css('border-color',ci).css('opacity',opc);
+			marker_cache.push(mc);				
+			
 			// map.setView([lat,lon]); // if follow
 			
 			UpdateStatus();
@@ -270,30 +287,33 @@
 		
 		// colors for clients
 		var nextColorIndex = 0;
-		var colors = ['#FF0000','#00FF00','#0000FF','#A901DB','#DF7401','#01A9DB','#00FF80','#A5DF00','#FFFC14','#75FFE8'];
-		var getNextColor = function() { if(nextColorIndex >= colors.length) nextColorIndex = 0; return colors[nextColorIndex++]; };
+		var colors = ['#000000','#592900','#C90000','#FF5900','#EDEB00','#00C900','#0000C9','#FF0094','#00007B','#FFFFFF'];
 		
 		var UpdateBuddies = function()
 		{
+			// Readraw old
+			for(i=0;i<marker_cache.length;i++) 
+			{
+				marker_cache[i].age += 15;
+				var ci = Math.round(marker_cache[i].age / 15);
+				if(ci > 255) ci = 255;
+				var opc = 1 - ci / 450;
+				ci = 'rgb('+ci+','+ci+','+ci+')';
+				$("#usr"+marker_cache[i].id).parent().css('border-color',ci).css('opacity',opc);;
+			};
+			
+		    // Update
 			$.get("vlist/", function(data) 
 			{
 				var robj = (new Function('','return '+data))();				
 				if((robj != null) && (robj.length > 0))
 					for (var i=0;i<robj.length;i++)
-						UpdateData(robj[i].user,robj[i].received,robj[i].lat,robj[i].lon,robj[i].speed,robj[i].hdg,robj[i].source);				
+						UpdateData(robj[i].user,robj[i].received,robj[i].lat,robj[i].lon,robj[i].speed,robj[i].hdg,robj[i].source,robj[i].id,robj[i].age);				
 				
 				Follow();
 			});
-			
-			for(i=0;i<marker_cache.length;i++) 
-			{			
-				marker_cache[i].noUpdate++;
-				var ci = marker_cache[i].noUpdate;
-				if(ci > 255) ci = 255;
-				ci = 'rgb('+ci+','+ci+','+ci+')';
-				marker_cache[i].marker.setStyle({color:ci,fillColor:marker_cache[i].color});
-			};
-			
+					
+
 			setTimeout(UpdateBuddies,15000);
 		};
 		

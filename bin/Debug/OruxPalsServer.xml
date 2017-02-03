@@ -1,13 +1,13 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <OruxPalsServerConfig>
 
-	<infoIP help="server IP address">127.0.0.1</infoIP>
+	<infoIP help="server IP address">83.69.193.22</infoIP>
 	<ListenPort help="listen tcp port" default="12015">12015</ListenPort>
 	<maxClientAlive help="close undefined (AIS) clients if they connected more XX minutes" default="60">60</maxClientAlive>
 	<maxHours help="keep information within XX hours" default="48">48</maxHours>
 	<greenMinutes help="by default all new vessels are class A (violet) if there is no info from vessel for XX minutes - it will be class B (green)" default="60">60</greenMinutes>
 	<urlPath help="url path, must be 8-symbols length" default="oruxpals">oruxpals</urlPath>
-	<adminName help="admin name for online generate hashsum for users">admin</adminName>
+	<adminName help="admin name for online generate hashsum for users">dkxce</adminName>
 	<sendBack help="send back APRS packets to clients yes/no">no</sendBack>
 	
 	<!-- registered Users -->
@@ -19,8 +19,9 @@
 			If users connect via APRS client in system his name always will be as defined userName in <u name="..."/>, not callsign. 
 			Callsign uses if user is not registered into system (but without ssid) or for forward (to & from) data to global APRS.
 		-->
-		<u name="TESTING1" phone="+11030040" forward="D" aprssymbol="/>" help="sample, for real users delete this tag"/>
-		<u name="TESTING2" phone="+12345678" forward="ADO" aprssymbol="/>" help="sample, for real users delete this tag">
+		<u name="TESTING1" phone="+11030040" forward="" aprssymbol="/>" help="sample, for real users delete this tag"/>
+		<u name="TESTING2" phone="+12345678" forward="" aprssymbol="/>" help="sample, for real users delete this tag"/>
+		<u name="TEMYCH" phone="+11030047" forward="ALHDO" aprssymbol="\k">
 			<!--
 				This tags <service/> determines configuration for online web service(s) (one or more) to retranslate users data.				
 				In names="..." can be any defined service(s) char(s) (1 char per 1 service). `A` means APRS (reserved), any other [B-Z] must exists in <forwardServices><service name="?"/></forwardServices>.
@@ -28,11 +29,11 @@
 				For `A` service (APRS) `id` is Callsign, for services type m/x/o `id` is IMEI.
 				Comment - comment will send with aprs position report to APRS-IS if client is not connected by APRS client (by OruxMaps or GPSGate Tracker)  (can be modified through APRSDroid). If client connected by APRS client comment will be ignored.
 			-->
-			<service names="A" id="CLLSGN-9" comment="Testing" help="if client connected via APRS client, data will forward only if callsign = id, not name"/>
-			<service names="DO" id="0123456789"/>
+			<service names="A" id="UB3APB-7" comment="Voice(6) 437.295MHz D115N 47Ruza (ub3apb@gmail.com)"/>
+			<service names="LHDO" id="356823032289997"/>
 		</u>
 	</users>
-		
+	
 	<!-- CROSS GATE To Global APRS-IS Network -->
 	
 	<!--  
@@ -58,7 +59,7 @@
     
 	<!-- filter help: http://aprsisce.wikidot.com/aprs-is-filters -->
 	<!-- filter: r/55.55/37.55/25 p/R/U b/UB3APB* g/UB3APB* f/UB3APB/25 f/UB3APB-7/25 -->
-	<APRSIS name="A" user="ORXPLS-GW" password="-1" filter="r/55.55/37.55/25" global2ais="no" global2aprs="yes" aprs2global="yes" any2global="no">euro.aprs2.net:14580</APRSIS>
+	<APRSIS name="A" user="UB3APB-OR" password="17827" filter="r/55.55/37.55/25 b/UB3APB* g/UB3APB* f/UB3APB/25 f/UB3APB-7/25" global2ais="yes" global2aprs="yes" aprs2global="yes" any2global="yes">russia.aprs2.net:14580</APRSIS>
 	
 	<!-- determines user defined tracking web services -->
 	<forwardServices help="use to forward incoming data to online tracking services">
@@ -72,6 +73,12 @@
 			`m`/`x` URL format:  server:port 
 			`o` URL format: http://updates.opengps.net/index.php?key=APIKEY, where APIKEY - your key in OPENGPS.Net 
 		-->
+	
+		<!-- http://livegpstracks.com/default.php?ch=tracklist -->
+		<service name="L" type="m" forward="yes">5.9.136.109:3339</service>
+		
+		<!-- http://www.gpshome.ru/xexun_tk-102_setup -->
+		<service name="H" type="x" forward="yes">213.219.245.116:20100</service>
 		
 		<!-- http://www.gpsdog.net/ -->
 		<service name="D" type="x" forward="no">46.28.110.207:9991</service>		

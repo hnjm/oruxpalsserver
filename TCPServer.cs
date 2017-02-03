@@ -169,17 +169,17 @@ namespace OruxPals
             
             while (Running && cd.thread.IsAlive && IsConnected(cd.client))
             {
-                if ((cd.state == 1) && (DateTime.UtcNow.Subtract(cd.connected).TotalMinutes >= MaxClientAlive)) break;
-
+                if (((cd.state == 1) || (cd.state == 6)) && (DateTime.UtcNow.Subtract(cd.connected).TotalMinutes >= MaxClientAlive)) break;
+                
                 try { rxAvailable = cd.client.Client.Available; }
                 catch { break; };
 
-                // AIS Client
-                if (cd.state == 1)
+                // AIS Client or APRS Read Only
+                if ((cd.state == 1) || (cd.state == 6))
                 {
                     Thread.Sleep(1000);
                     continue;                    
-                };
+                };                
 
                 if ((cd.state == 0) && (waitCounter-- == 0))
                 {
@@ -263,7 +263,7 @@ namespace OruxPals
 
         private bool OnAPRSClient(ClientData cd, string loginstring)
         {
-            string res = "# logresp user unverified";
+            string res = "# logresp user unverified, can't upload data";
 
             Match rm = Regex.Match(loginstring, @"^user\s([\w\-]{3,})\spass\s([\d\-]+)\svers\s([\w\d\-.]+)\s([\w\d\-.\+]+)");
             if (rm.Success)
@@ -311,19 +311,31 @@ namespace OruxPals
                         foreach (byte[] ba in blist)
                             try { cd.stream.Write(ba, 0, ba.Length); }
                             catch { };
-                    }
+                    };
 
                     return true;
                 };
             };
 
-            // invalid user
+            // Invalid user
             {
+                cd.state = 6; // APRS Read-Only
                 byte[] ret = Encoding.ASCII.GetBytes(res + "\r\n");
                 try { cd.stream.Write(ret, 0, ret.Length); }
                 catch { };
-                cd.client.Close();
-                return false;
+
+                if (BUDS != null)
+                {
+                    Buddie[] bup = BUDS.Current;
+                    List<byte[]> blist = new List<byte[]>();
+                    foreach (Buddie b in bup)
+                        blist.Add(b.APRSData);                        
+                    foreach (byte[] ba in blist)
+                        try { cd.stream.Write(ba, 0, ba.Length); }
+                        catch { };
+                };
+
+                return true;
             };            
         }
 
@@ -709,6 +721,7 @@ namespace OruxPals
                     if (ci.state == 1) cAIS++;
                     if (ci.state == 4) cAPRS++;
                     if (ci.state == 5) cFRS++;
+                    if (ci.state == 6) cAPRS++;
                 };
             int bc = 0, rbc = 0;
             string rbds = "";
@@ -808,8 +821,8 @@ namespace OruxPals
                         if (b.source == 2) src = "OruxMaps MapMyTracks";
                         if (b.source == 3) src = "APRS Client";
                         if (b.source == 4) src = "FRS (GPSGate Tracker)";
-                        cdata += (cdata.Length > 0 ? "," : "") + "{" + String.Format("user:'{0}',received:'{1}',lat:{2},lon:{3},speed:{4},hdg:{5},source:'{6}'",
-                            new object[] { b.name, b.last, b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.speed, b.course, src }) + "}";
+                        cdata += (cdata.Length > 0 ? "," : "") + "{" + String.Format("id:{7},user:'{0}',received:'{1}',lat:{2},lon:{3},speed:{4},hdg:{5},source:'{6}',age:{8}",
+                            new object[] { b.name, b.last, b.lat.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture), b.lon.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture), b.speed, b.course, src, b.ID, (int)DateTime.UtcNow.Subtract(b.last).TotalSeconds }) + "}";
                     };
                 };
                 cdata = "[" + cdata + "]";
@@ -1072,15 +1085,17 @@ namespace OruxPals
                 {
                     if (obj == null) continue;
                     ClientData cd = (ClientData)obj;
-                    if ((cd.state == 1) && bAIS)
+                    if ((cd.state == 1) && bAIS) // AIS readonly
                         cdlist.Add(cd);
-                    if ((cd.state == 4)  && bAPRS)
+                    if ((cd.state == 4)  && bAPRS) // APRS rx/tx
                     {
                         if (sendBack)
                             cdlist.Add(cd);
                         else if (fromUser != cd.user)
                             cdlist.Add(cd);
                     };
+                    if ((cd.state == 6) && bAPRS) // APRS readonly
+                        cdlist.Add(cd);
                 };
 
             foreach (ClientData cd in cdlist)
@@ -1323,6 +1338,8 @@ namespace OruxPals
 
             string ctype = "text/html; charset=utf-8";
             System.IO.FileStream fs = new FileStream(ffn, FileMode.Open, FileAccess.Read);
+            if (Path.GetExtension(ffn).ToLower() == ".css") ctype = "";// "text/css; charset=windows-1251";
+            if (Path.GetExtension(ffn).ToLower() == ".js") ctype = "text/javascript; charset=windows-1251";
 
             string Headers =
                 "HTTP/1.1 200 OK\r\n" +
@@ -1377,7 +1394,7 @@ namespace OruxPals
 
         private class ClientData
         {
-            public byte state; // 0 - undefined; 1 - listen (AIS); 2 - gpsgate; 3 - mapmytracks; 4 - APRS; 5 - FRS (GPSGate by TCP)
+            public byte state; // 0 - undefined; 1 - listen (AIS); 2 - gpsgate; 3 - mapmytracks; 4 - APRS; 5 - FRS (GPSGate by TCP); 6 - listen (APRS)
             public Thread thread;
             public TcpClient client;
             public DateTime connected;
