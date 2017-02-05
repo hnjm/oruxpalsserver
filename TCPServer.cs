@@ -702,7 +702,7 @@ namespace OruxPals
                         addit = String.Format("Information about: <b>{0}</b>\r\n<br/>", b.name);
                         addit += String.Format("Source: {0}\r\n<br/>", src);
                         addit += String.Format("Received: {0} UTC\r\n<br/>", b.last);
-                        addit += String.Format("Valid till: {0} UTC\r\n<br/>", b.last.AddHours(MaxClientAlive));
+                        addit += String.Format("Valid till: {0} UTC\r\n<br/>", b.last.AddHours(maxHours));
                         addit += String.Format("Position: {0} {1}\r\n<br/>", b.lat, b.lon);
                         addit += String.Format("Speed: {0} kmph\r\n<br/>", b.speed);
                         addit += String.Format("Heading: {0}&deg;\r\n<br/>", b.course);
