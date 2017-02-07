@@ -74,9 +74,28 @@ namespace OruxPals
             {
                 if (!_active) return false;
                 if (tcp_client == null) return false;
-                return tcp_client.Connected;
+                return IsConnected(tcp_client);
             }
-        }    
+        }
+
+        private static bool IsConnected(TcpClient Client)
+        {
+            if (!Client.Connected) return false;
+            if (Client.Client.Poll(0, SelectMode.SelectRead))
+            {
+                byte[] buff = new byte[1];
+                try
+                {
+                    if (Client.Client.Receive(buff, SocketFlags.Peek) == 0)
+                        return false;
+                }
+                catch
+                {
+                    return false;
+                };
+            };
+            return true;
+        }
 
         private void ReadIncomingDataThread()
         {
@@ -84,7 +103,7 @@ namespace OruxPals
             while (_active)
             {
                 // connect
-                if ((tcp_client == null) || (!tcp_client.Connected))
+                if ((tcp_client == null) || (!IsConnected(tcp_client)))
                 {
                     tcp_client = new TcpClient();
                     try
