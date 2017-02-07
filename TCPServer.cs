@@ -365,8 +365,10 @@ namespace OruxPals
                    b.name = cd.user;
                };
 
-               if ((b.lat != 0) && (b.lon != 0))
+               if ((b.lat != 0) && (b.lon != 0)) // if Position Packet send to All (AIS + APRS + Web)
                    OnNewData(b);
+               else // if not Position Packet send as is only to all APRS clients
+                   Broadcast(b.APRSData, b.name, false, true);
             };
         }
 
