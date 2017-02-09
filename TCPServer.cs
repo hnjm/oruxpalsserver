@@ -17,6 +17,7 @@ namespace OruxPals
     {
         public static string serviceName { get { return "OruxPals"; } }
         public static string softver { get { return "OruxPalsServer v0.5a"; } }
+        public static string softwlc { get { return "OruxPals Server v0.5a"; } }
 
         private OruxPalsServerConfig.RegUser[] regUsers;
         private Hashtable clientList = new Hashtable();
@@ -158,19 +159,19 @@ namespace OruxPals
         }
 
         private void ClientThread(object param)
-        {            
+        {
             ClientData cd = (ClientData)param;            
 
             string rxText = "";
             byte[] rxBuffer = new byte[4096];
             int rxCount = 0;
             int rxAvailable = 0;
-            int waitCounter = 30; // 3 sec
-            
+            int waitCounter = 45; // 4.5 sec, after 2 seconds - welcome
+
             while (Running && cd.thread.IsAlive && IsConnected(cd.client))
             {
                 if (((cd.state == 1) || (cd.state == 6)) && (DateTime.UtcNow.Subtract(cd.connected).TotalMinutes >= MaxClientAlive)) break;
-                
+
                 try { rxAvailable = cd.client.Client.Available; }
                 catch { break; };
 
@@ -178,9 +179,20 @@ namespace OruxPals
                 if ((cd.state == 1) || (cd.state == 6))
                 {
                     Thread.Sleep(1000);
-                    continue;                    
-                };                
+                    continue;
+                };
 
+                // After 2 seconds write AIS Welcome message
+                // OruxMaps from version OruxMaps7.0.0rc7.apk supports APRS, but identity packet sends 
+                //   only when any data received from server // client save 2.5 sec to identify
+                if ((cd.state == 0) && (waitCounter == 25))
+                {
+                    SafetyRelatedBroadcastMessage sbm = new SafetyRelatedBroadcastMessage();
+                    byte[] ret = Encoding.ASCII.GetBytes(sbm.ToWelcomeMsg() + "\r\n");
+                    cd.stream.Write(ret, 0, ret.Length);
+                };
+
+                // After 3.5 seconds if no data
                 if ((cd.state == 0) && (waitCounter-- == 0))
                 {
                     cd.state = 1;
@@ -195,7 +207,7 @@ namespace OruxPals
                 };
 
                 // READ INCOMING DATA
-                try 
+                try
                 {
                     // GPSGate, MapMyTracks or APRS Client //
                     if ((cd.state == 0) && (rxText.Length >= 4))
@@ -241,12 +253,12 @@ namespace OruxPals
                     };
                 }
                 catch { };
-                
+
                 Thread.Sleep(100);
             };
 
             lock (clientList) clientList.Remove(cd.id);
-            cd.client.Close();            
+            cd.client.Close();
             cd.thread.Abort();
         }
 

@@ -507,6 +507,35 @@ namespace OruxPals
         }
     }
 
+    // 14
+    public class SafetyRelatedBroadcastMessage
+    {
+        public byte[] ToAIS()
+        {
+            string sftv = "WELCOME, AIS/APRS, " + OruxPalsServer.softwlc.ToUpper();
+            byte[] unpackedBytes = new byte[5 + (int)(sftv.Length / 8.0 * 6.0 + 1)];
+            AISTransCoder.SetBitsAsUnsignedInt(unpackedBytes, 0, 6, 14);
+            AISTransCoder.SetBitsAsUnsignedInt(unpackedBytes, 6, 2, 0);
+            AISTransCoder.SetBitsAsUnsignedInt(unpackedBytes, 8, 30, 0); //MMSI
+            AISTransCoder.SetBitsAsUnsignedInt(unpackedBytes, 38, 2, 0);
+            AISTransCoder.SetAisString(unpackedBytes, 40, sftv.Length * 6, sftv);
+            return unpackedBytes;
+        }
+
+        public override string ToString()
+        {
+            return AISTransCoder.EnpackAISString(ToAIS());
+        }
+
+        public string ToWelcomeMsg()
+        {
+            string s = this.ToString();
+            s = "!AIVDM,1,1,,A," + s + ",0";
+            s += "*" + AISTransCoder.Checksum(s);
+            return s;
+        }
+    }
+
     // 18
     public class CNBBsentense
     {
