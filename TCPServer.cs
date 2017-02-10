@@ -16,8 +16,8 @@ namespace OruxPals
     public class OruxPalsServer
     {
         public static string serviceName { get { return "OruxPals"; } }
-        public static string softver { get { return "OruxPalsServer v0.5a"; } }
-        public static string softwlc { get { return "OruxPals Server v0.5a"; } }
+        public static string softver { get { return "OruxPalsServer v0.6a"; } }
+        public static string softwlc { get { return "OruxPals Server v0.6a"; } }
 
         private OruxPalsServerConfig.RegUser[] regUsers;
         private Hashtable clientList = new Hashtable();
@@ -288,7 +288,8 @@ namespace OruxPals
 
                 int psw = -1;
                 int.TryParse(password, out psw);
-                if (psw == APRSData.CallsignChecksum(callsign))
+                // check for valid HAM user or for valid OruxPals Server user
+                if ((psw == APRSData.CallsignChecksum(callsign)) || (psw == Buddie.Hash(callsign)))
                 {
                     cd.state = 4; //APRS
                     cd.user = callsign; // .user - valid username for callsign
@@ -440,6 +441,44 @@ namespace OruxPals
                             if (ms.Length > 1)
                                 cu.forward = ms[1].ToUpper();
                             string cmd2s = "ORXPLS-GW>APRS,TCPIP*::" + frm + ": forward set to `" + (cu.forward == null ? "" : cu.forward) + "`\r\n";
+                            byte[] bts = Encoding.ASCII.GetBytes(cmd2s);
+                            try { cd.stream.Write(bts, 0, bts.Length); }
+                            catch { };
+                        };
+                    }
+                    else if ((ms[0] == "KILL") && (ms.Length > 1)) // forward
+                    {
+                        string u2k = ms[1].ToUpper();
+                        OruxPalsServerConfig.RegUser cu = null;
+                        if (regUsers != null)
+                            foreach (OruxPalsServerConfig.RegUser u in regUsers)
+                            {
+                                if (frm == u.name)
+                                {
+                                    cu = u;
+                                    break;
+                                };
+                                if (u.services != null)
+                                    foreach (OruxPalsServerConfig.RegUserSvc svc in u.services)
+                                        if (svc.names.Contains("A") && (svc.id == frm))
+                                        {
+                                            cu = u;
+                                            break;
+                                        };
+                            };
+
+                        if (cu == null)
+                        {
+                            string cmd2s = "ORXPLS-GW>APRS,TCPIP*::" + frm + ": no kill privileges\r\n";
+                            byte[] bts = Encoding.ASCII.GetBytes(cmd2s);
+                            try { cd.stream.Write(bts, 0, bts.Length); }
+                            catch { };
+                        }
+                        else
+                        {
+                            bool ok = false;
+                            if (BUDS != null) ok = BUDS.Kill(u2k);
+                            string cmd2s = "ORXPLS-GW>APRS,TCPIP*::" + frm + ": kill `" + u2k + "` "+(ok ? "OK" : "FAILED")+"\r\n";
                             byte[] bts = Encoding.ASCII.GetBytes(cmd2s);
                             try { cd.stream.Write(bts, 0, bts.Length); }
                             catch { };
@@ -728,12 +767,13 @@ namespace OruxPals
 
             int cAIS = 0;
             int cAPRS = 0;
+            int cAPRSr = 0;
             int cFRS = 0;
             lock (clientList)
                 foreach (ClientData ci in clientList.Values)
                 {
                     if (ci.state == 1) cAIS++;
-                    if (ci.state == 4) cAPRS++;
+                    if (ci.state == 4) { cAPRS++; cAPRSr++; };
                     if (ci.state == 5) cFRS++;
                     if (ci.state == 6) cAPRS++;
                 };
@@ -786,8 +826,8 @@ namespace OruxPals
                 "Server: {0}\r\n<br/>" +
                 "Port: {4}\r\n<br/>" +
                 "Started {1} UTC\r\n<br/>" +
-                "<a href=\"{5}view\">Map View</a>\r\n<br/><br/>" +                
-                "Clients AIS/APRS/FRS: {2} / {7} / {8}\r\n<br/>" +
+                "<a href=\"{5}view\">Map View</a> | <a href=\"{5}v/resources\">Resources</a>\r\n<br/><br/>" +
+                "Clients AIS/APRS(R)/FRS: {2} / {7} ({10}) / {8}\r\n<br/>" +
                 "Buddies Online/Registered/Unregistered: {3}\r\n<br/>" +
                 "{6}\r\n<br/>" +
                 "Forward Services:\r\b<br/>"+
@@ -811,7 +851,8 @@ namespace OruxPals
                 rbds + ubds,
                 cAPRS,
                 cFRS,
-                fsvc
+                fsvc,
+                cAPRSr
                 }));
         }
 
@@ -835,8 +876,9 @@ namespace OruxPals
                         if (b.source == 2) src = "OruxMaps MapMyTracks";
                         if (b.source == 3) src = "APRS Client";
                         if (b.source == 4) src = "FRS (GPSGate Tracker)";
-                        cdata += (cdata.Length > 0 ? "," : "") + "{" + String.Format("id:{7},user:'{0}',received:'{1}',lat:{2},lon:{3},speed:{4},hdg:{5},source:'{6}',age:{8}",
-                            new object[] { b.name, b.last, b.lat.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture), b.lon.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture), b.speed, b.course, src, b.ID, (int)DateTime.UtcNow.Subtract(b.last).TotalSeconds }) + "}";
+                        cdata += (cdata.Length > 0 ? "," : "") + "{" + String.Format(
+                            "id:{7},user:'{0}',received:'{1}',lat:{2},lon:{3},speed:{4},hdg:{5},source:'{6}',age:{8},symbol:'{9}',r:{10}",
+                            new object[] { b.name, b.last, b.lat.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture), b.lon.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture), b.speed, b.course, src, b.ID, (int)DateTime.UtcNow.Subtract(b.last).TotalSeconds, b.IconSymbol.Replace(@"\", @"\\").Replace(@"'", @"\'"), b.regUser == null ? 0 : 1 }) + "}";
                     };
                 };
                 cdata = "[" + cdata + "]";
@@ -846,8 +888,21 @@ namespace OruxPals
             {
                 if (ptf == "")
                     HTTPClientSendFile(cd.client, "map.html");
+                else if (ptf == "resources") // send 
+                {
+                    string ffn = OruxPalsServerConfig.GetCurrentDir() + @"\MAP\resources\";
+                    string[] flist = Directory.GetFiles(ffn,"*.*",SearchOption.TopDirectoryOnly);
+                    string txtout = "<span style=\"color:red;\"> " + OruxPalsServer.serviceName + " Resources:</span>\r\n<br/>";
+                    if (flist != null)
+                        foreach (string f in flist)
+                        {
+                            FileInfo fi = new FileInfo(f);
+                            txtout += "- <a href=\"resources/" + System.IO.Path.GetFileName(f) + "\">" + System.IO.Path.GetFileName(f) + "<a/> " + String.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:0.00} MB", fi.Length / 1024.0 / 1024.0) + "\r\n<br/>";
+                        };
+                    HTTPClientSendResponse(cd.client, txtout);
+                }
                 else
-                    HTTPClientSendFile(cd.client, ptf);
+                    HTTPClientSendFile(cd.client, ptf.Replace("..","00"));
             };
         }
 
@@ -1019,6 +1074,12 @@ namespace OruxPals
                     if (u.name == buddie.name)
                     {
                         buddie.regUser = u;
+                        if ((Buddie.IsNullIcon(buddie.IconSymbol)) && (u.aprssymbol != null))
+                        {
+                            buddie.IconSymbol = u.aprssymbol;
+                            while (buddie.IconSymbol.Length < 1)
+                                buddie.IconSymbol = "/" + buddie.IconSymbol;
+                        };
                         return true;
                     };
             return false;
@@ -1352,8 +1413,10 @@ namespace OruxPals
 
             string ctype = "text/html; charset=utf-8";
             System.IO.FileStream fs = new FileStream(ffn, FileMode.Open, FileAccess.Read);
-            if (Path.GetExtension(ffn).ToLower() == ".css") ctype = "";// "text/css; charset=windows-1251";
-            if (Path.GetExtension(ffn).ToLower() == ".js") ctype = "text/javascript; charset=windows-1251";
+            string ext = Path.GetExtension(ffn).ToLower();
+            if (ext == ".css") ctype = "";// "text/css; charset=windows-1251";
+            if (ext == ".js") ctype = "text/javascript; charset=windows-1251";
+            if ((ext == ".apk") || (ext == ".exe") || (ext == ".rar") || (ext == ".bin")) ctype = "application/octet-stream";
 
             string Headers =
                 "HTTP/1.1 200 OK\r\n" +

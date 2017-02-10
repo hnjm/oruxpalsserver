@@ -68,11 +68,16 @@ namespace OruxPals
                     for (int i = buddies.Count - 1; i >= 0; i--)
                         if (buddie.name == buddies[i].name)
                         {
-                            buddie.ID = buddies[i].ID;
+                            if((buddie.source != 3) && (!Buddie.IsNullIcon(buddies[i].IconSymbol)))
+                                buddie.IconSymbol = buddies[i].IconSymbol;
+                            if(Buddie.IsNullIcon(buddie.IconSymbol))
+                                buddie.IconSymbol = buddies[i].IconSymbol;
+                            buddie.ID = buddies[i].ID;                            
                             buddies.RemoveAt(i);
                         };
 
-                if (buddie.ID == 0) buddie.ID = ++Buddie._id;
+                if (buddie.ID == 0)
+                    buddie.ID = ++Buddie._id;                
                 buddies.Add(buddie);                
             };
 
@@ -109,6 +114,19 @@ namespace OruxPals
         public void Clear()
         {
             lock (buddies) buddies.Clear();
+        }
+
+        public bool Kill(string user)
+        {
+            if(buddies.Count == 0) return false;
+            lock(buddies)
+                for(int i=buddies.Count-1;i>=0;i--)
+                    if (buddies[i].name == user)
+                    {
+                        buddies.RemoveAt(i);
+                        return true;
+                    };
+            return false;    
         }
 
         private void ClearThread()
@@ -183,9 +201,31 @@ namespace OruxPals
     public class Buddie
     {
         public static Regex BuddieNameRegex = new Regex("^([A-Z0-9]{3,9})$");
+        public static string symbolAny = "/*/</=/>/C/F/M/P/U/X/Y/Z/[/a/b/e/f/j/k/p/s/u/v/]\\j\\k\\u\\v/0/1/2/3/4/5/6/7/8/9/'/O";
+        public static int symbolAnyLength = 40;
 
         internal static ulong _id = 0;
-        internal ulong ID = 0;
+        private ulong _ID = 0;
+        internal ulong ID
+        {
+            get { return _ID; }
+            set 
+            {
+                _ID = value;
+                if (_ID == 0)
+                {
+                    IconSymbol = "//";
+                    return;
+                }
+                else if(Buddie.IsNullIcon(IconSymbol))
+                    IconSymbol = Buddie.symbolAny.Substring((((int)_ID-1) % Buddie.symbolAnyLength) * 2, 2);
+            }
+        }
+
+        public static bool IsNullIcon(string symbol)
+        {
+            return (symbol == null) || (symbol == String.Empty) || (symbol == "//");
+        }
 
         public byte source; // 0 - unknown; 1 - GPSGate Format; 2 - MapMyTracks Format; 3 - APRS; 4 - FRS
         public string name;                        
@@ -221,10 +261,10 @@ namespace OruxPals
         public byte[] APRSData = null;
 
         public OruxPalsServerConfig.RegUser regUser;
+        public string IconSymbol = "//";
 
         public Buddie(byte source, string name, double lat, double lon, short speed, short course)
         {
-            this.ID = 0;
             this.source = source;
             this.name = name;            
             this.lat = lat;
@@ -257,19 +297,14 @@ namespace OruxPals
         {
             if (this.source == 3) return;
 
-            string symbol = "/" + (ID % 10).ToString();
-            if ((this.regUser != null) && (this.regUser.aprssymbol != null) && (this.regUser.aprssymbol != String.Empty))
-                symbol = this.regUser.aprssymbol;
-            if (symbol.Length == 1) symbol = "/" + symbol;
-
             APRS =
                 name + ">APRS,TCPIP*:=" + // Position without timestamp + APRS message
                 Math.Truncate(lat).ToString("00") + ((lat - Math.Truncate(lat)) * 60).ToString("00.00").Replace(",", ".") +
                 (lat > 0 ? "N" : "S") +
-                symbol[0] +
+                IconSymbol[0] +
                 Math.Truncate(lon).ToString("000") + ((lon - Math.Truncate(lon)) * 60).ToString("00.00").Replace(",", ".") +
                 (lon > 0 ? "E" : "W") +
-                symbol[1] +
+                IconSymbol[1] +
                 course.ToString("000") + "/" + Math.Truncate(speed / 1.852).ToString("000") +
                 "\r\n";
             APRSData = Encoding.ASCII.GetBytes(APRS);
@@ -283,7 +318,10 @@ namespace OruxPals
         public static int Hash(string name)
         {
             string upname = name == null ? "" : name;
+            int stophere = upname.IndexOf("-");
+            if (stophere > 0) upname = upname.Substring(0, stophere);            
             while (upname.Length < 9) upname += " ";
+            
             int hash = 0x2017;
             int i = 0;
             while (i < 9)
@@ -1093,6 +1131,7 @@ namespace OruxPals
                             };
                         };
                         aftertext = pos.Substring(13 + addIfWeather);
+                        b.IconSymbol = "/" + symbol.ToString();
                     }
                     else // not compressed
                     {
@@ -1109,6 +1148,8 @@ namespace OruxPals
                         prim_or_sec = pos[8];
                         symbol = pos[18];
                         aftertext = pos.Substring(19);
+
+                        b.IconSymbol = prim_or_sec.ToString() + symbol.ToString();
                     };
 
                     // course/speed or course/speed/bearing/NRQ

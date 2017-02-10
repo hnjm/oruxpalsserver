@@ -9,6 +9,7 @@
 			<link rel="stylesheet" href="v/leaflet/L.Control.Zoomslider/L.Control.Zoomslider.ie.css" />
 		<![endif]-->		
 		<script src="v/jquery.js"></script>		
+		<script src="v/jQueryRotate.js"></script>		
 		<script src="v/leaflet/leaflet.js"></script>				
 		<link rel="stylesheet" href="v/leaflet/L.Control.Zoomslider/L.Control.Zoomslider.css" />		
 		<script src="v/leaflet/L.Control.Zoomslider/L.Control.Zoomslider.js"></script>
@@ -167,10 +168,10 @@
 		var marker_cache = [];
 		
 		//	UPDATE CLIENT DATA
-		var UpdateData = function(user,dt,lat,lon,speed,heading,source,id,age)
+		var UpdateData = function(user,dt,lat,lon,speed,heading,source,id,age,symbol,registered)
 		{
 			var txt = '<div>';
-			txt += 'Last: '+dt+'<br/>';
+			txt += 'Last: '+dt+' UTC<br/>';
 			txt += 'Position: '+lat+' '+lon+'<br/>';
 			txt += 'Heading: '+heading+'&deg;<br/>';
 			txt += 'Speed : '+speed+' km/h<br/>';
@@ -183,7 +184,7 @@
 				if(marker_cache[i].user == user)
 				{		
 					var mc = marker_cache[i];
-					txt = '<b>'+user+'</b><hr style="font-size:0px;height:1px;border-top:solid 1px gray;"/><div style="width:200px;">' + txt;					
+					txt = '<b>'+user+'</b> <sup><a href="/oruxpals/i/'+user+'" target="_blank" style="color:black;">'+id+'</a></sup> '+(registered ? "&reg;" : "")+'<hr style="font-size:0px;height:1px;border-top:solid 1px gray;"/><div style="width:200px;">' + txt;					
 					
 					mc.id = id;
 					mc.age = age;
@@ -193,15 +194,21 @@
 						if(ci > 255) ci = 255;
 						var opc = 1 - ci / 450;
 						ci = 'rgb('+ci+','+ci+','+ci+')';
-						$("#usr"+mc.id).parent().css('border-color',ci).css('opacity',opc);;
+						$("#usericon"+mc.id).css('opacity',opc);
 					};
 					if((lat != mc.lat) || (lon != mc.lon))  {
 						mc.llarray.push([lat,lon]); // update path					 
 						mc.lat = lat; mc.lon = lon; 	
 						mc.marker.setLatLng([lat,lon]); // update marker
 						mc.marker.label.setLatLng([lat,lon]);
+					};					
+					if(mc.symbol != symbol)
+					{
+						$("#usericon"+mc.id)[0].outerHTML = '<div id="usericon'+mc.id+'" class="aprs-usericon" style="'+symbolToImage(symbol)+'">'+$("#usericon"+id)[0].innerHTML+'</div>';
 					};
-					mc.heading = heading; mc.speed = speed; mc.dt = dt;										
+					if(mc.heading != heading)
+						$("#img"+id).rotate(heading);
+					mc.symbol = symbol; mc.heading = heading; mc.speed = speed; mc.dt = dt;
 					mc.marker.bindPopup(txt); // update popup text
 					
 					if(mc.follow) // set map if follow
@@ -210,7 +217,7 @@
 					if(mc.line != null) 
 						mc.line.setLatLngs(mc.llarray);
 					else if((mc.llarray != null) && (mc.llarray.length > 1))
-					{					
+					{
 						mc.line = new L.Polyline(mc.llarray,{color:mc.color,weight:3});
 						mc.line.addTo(map);
 					};					
@@ -218,29 +225,50 @@
 				};
 			};
 			
+			var symbolImage = symbolToImage(symbol);
+			
 			///// NEW ///////
-			txt = '<b>'+user+'</b><hr style="font-size:0px;height:1px;border-top:solid 1px gray;"/><div style="width:200px;">' + txt;
-			var mc = {"user":user,"lat":lat,"lon":lon,"heading":heading,"speed":speed,"dt":dt,"id":id,"age":age};
+			txt = '<b>'+user+'</b> <sup><a href="/oruxpals/i/'+user+'" target="_blank" style="color:black;">'+id+'</a></sup> '+(registered ? "&reg;" : "")+'<hr style="font-size:0px;height:1px;border-top:solid 1px gray;"/><div style="width:200px;">' + txt;
+			var mc = {"user":user,"lat":lat,"lon":lon,"heading":heading,"speed":speed,"dt":dt,"id":id,"age":age,"symbol":symbol};
+			mc.color = colors[id % 10];
 			mc.follow = false;
 			mc.llarray = [[lat,lon]];
 			mc.line = null;
-			mc.color = colors[id % 10];			
-			mc.icon = new L.DivIcon({className: 'aprs-box aprs' + (id % 10),html: '&nbsp;<span id="usr'+id+'">'+(id % 10)+'</span>'});
+			mc.icon = new L.DivIcon({className: 'aprs-clear',html: 
+				'<div id="usericon'+id+'" class="aprs-usericon" style="'+symbolImage+'"><img id="img'+id+'" src="v/images/arrow.png" class="aprs-hdg"/></div>'
+			});
 			mc.marker = new L.Marker([lat,lon], {icon: mc.icon});			
 			mc.marker.bindPopup(txt);
 			mc.marker.bindLabel(user, { direction: 'right', noHide:true });
 			mc.marker.addTo(map);	
+			$("#img"+id).rotate(mc.heading);
 			// update border color
 			var ci = Math.round(mc.age / 15);
 			if(ci > 255) ci = 255;
 			var opc = 1 - ci / 450;
 			ci = 'rgb('+ci+','+ci+','+ci+')';
-			$("#usr"+id).parent().css('border-color',ci).css('opacity',opc);
+			$("#usericon"+id).css('opacity',opc);
 			marker_cache.push(mc);				
 			
 			// map.setView([lat,lon]); // if follow
 			
 			UpdateStatus();
+		}
+		
+		var symbolToImage = function(symb)
+		{
+			var prose = 'primary';
+			if(symb.length == 2)
+			{
+				if(symb[0] == '\\') prose = 'secondary';
+				symb = symb.substr(1);
+			};
+			var symbtable = '!"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~';						
+			var idd = symbtable.indexOf(symb);
+			if(idd < 0) idd = 14;
+			var itop =  Math.trunc(idd / 16) * 24;
+			var ileft = (idd % 16) * 24;
+			return 'background:url(v/images/'+prose+'.png) -'+ileft+'px -'+itop+'px no-repeat;';
 		}
 		
 		var UpdateStatus = function()
@@ -285,10 +313,6 @@
 			};
 		};		
 		
-		// colors for clients
-		var nextColorIndex = 0;
-		var colors = ['#000000','#592900','#C90000','#FF5900','#EDEB00','#00C900','#0000C9','#FF0094','#00007B','#FFFFFF'];
-		
 		var UpdateBuddies = function()
 		{
 			// Readraw old
@@ -299,7 +323,7 @@
 				if(ci > 255) ci = 255;
 				var opc = 1 - ci / 450;
 				ci = 'rgb('+ci+','+ci+','+ci+')';
-				$("#usr"+marker_cache[i].id).parent().css('border-color',ci).css('opacity',opc);;
+				$("#usericon"+marker_cache[i].id).css('opacity',opc);
 			};
 			
 		    // Update
@@ -308,7 +332,7 @@
 				var robj = (new Function('','return '+data))();				
 				if((robj != null) && (robj.length > 0))
 					for (var i=0;i<robj.length;i++)
-						UpdateData(robj[i].user,robj[i].received,robj[i].lat,robj[i].lon,robj[i].speed,robj[i].hdg,robj[i].source,robj[i].id,robj[i].age);				
+						UpdateData(robj[i].user,robj[i].received,robj[i].lat,robj[i].lon,robj[i].speed,robj[i].hdg,robj[i].source,robj[i].id,robj[i].age,robj[i].symbol,robj[i].r);
 				
 				Follow();
 			});
@@ -327,6 +351,7 @@
 			};				
 		}
 				
+		var colors = ['#000000','#592900','#C90000','#FF5900','#EDEB00','#00C900','#0000C9','#FF0094','#00007B','#FFFFFF'];
 
 		UpdateStatus();
 		UpdateBuddies();				
