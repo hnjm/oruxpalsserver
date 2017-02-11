@@ -9,6 +9,7 @@
 	<urlPath help="url path, must be 8-symbols length" default="oruxpals">oruxpals</urlPath>
 	<adminName help="admin name for online generate hashsum for users">admin</adminName>
 	<sendBack help="send back APRS packets to clients yes/no">no</sendBack>
+	<callsignToUser help="Source Callsign from all incoming APRS packets will set to userName for internal usage: yes/no">yes</callsignToUser>
 	
 	<!-- registered Users -->
 	<!-- You can place here users for GPSGate Tracker, where only const IMEI and variable phone number, clients with not defined phones will be closed -->

@@ -42,6 +42,7 @@ namespace OruxPals
         private string urlPath = "/oruxpals/";
         private string adminName = "admin";
         private bool sendBack = false;
+        private bool callsignToUser = true;
         private string infoIP = "127.0.0.1";
 
         public OruxPalsServer() 
@@ -54,6 +55,7 @@ namespace OruxPals
             if (config.urlPath.Length != 8) throw new Exception("urlPath must be 8 symbols length");
             adminName = config.adminName;
             sendBack = config.sendBack == "yes";
+            callsignToUser = config.callsignToUser == "yes";
             infoIP = config.infoIP;
             urlPath = "/"+config.urlPath.ToLower()+"/";
             if (config.users != null) regUsers = config.users.users;
@@ -149,6 +151,11 @@ namespace OruxPals
             string pingmsg = "# " + softver + "\r\n";
             byte[] pingdata = Encoding.ASCII.GetBytes(pingmsg);
             BroadcastAPRS(pingdata);
+
+            SafetyRelatedBroadcastMessage sbm = new SafetyRelatedBroadcastMessage("PING, " + OruxPalsServer.softwlc.ToUpper());
+            string txt = sbm.ToPacketFrame() + "\r\n";
+            byte[] ret = Encoding.ASCII.GetBytes(sbm.ToPacketFrame() + "\r\n");
+            BroadcastAIS(ret);
         }
 
         private void GetClient(TcpClient Client)
@@ -187,8 +194,8 @@ namespace OruxPals
                 //   only when any data received from server // client save 2.5 sec to identify
                 if ((cd.state == 0) && (waitCounter == 25))
                 {
-                    SafetyRelatedBroadcastMessage sbm = new SafetyRelatedBroadcastMessage();
-                    byte[] ret = Encoding.ASCII.GetBytes(sbm.ToWelcomeMsg() + "\r\n");
+                    SafetyRelatedBroadcastMessage sbm = new SafetyRelatedBroadcastMessage("WELCOME, AIS/APRS, " + OruxPalsServer.softwlc.ToUpper());
+                    byte[] ret = Encoding.ASCII.GetBytes(sbm.ToPacketFrame() + "\r\n");
                     cd.stream.Write(ret, 0, ret.Length);
                 };
 
@@ -305,7 +312,7 @@ namespace OruxPals
                     // remove ssid, `-` not valid symbol in name
                     if (cd.user.Contains("-")) cd.user = cd.user.Substring(0, cd.user.IndexOf("-"));
 
-                    res = "# logresp " + callsign + " verified, filter is not supported";
+                    res = "# logresp " + callsign + " verified, server " + serviceName;
                     byte[] ret = Encoding.ASCII.GetBytes(res + "\r\n");
                     try { cd.stream.Write(ret, 0, ret.Length); }
                     catch { };
@@ -371,7 +378,7 @@ namespace OruxPals
                                    aprsgw.SendCommand(b.APRS);
 
                // if callsign is not valid name for user
-               if (b.name != cd.user)
+               if ((b.name != cd.user) && (callsignToUser))
                {
                    b.APRS = b.APRS.Replace(b.name + ">", cd.user + ">");
                    b.APRSData = Encoding.ASCII.GetBytes(b.APRS);
@@ -1071,6 +1078,7 @@ namespace OruxPals
         {
             if (regUsers != null)
                 foreach (OruxPalsServerConfig.RegUser u in regUsers)
+                {
                     if (u.name == buddie.name)
                     {
                         buddie.regUser = u;
@@ -1082,6 +1090,20 @@ namespace OruxPals
                         };
                         return true;
                     };
+                    if((u.services != null) && (u.services.Length > 0))
+                        foreach(OruxPalsServerConfig.RegUserSvc svc in u.services)
+                            if ((svc.names != null) && (svc.names.Contains("A")) && (svc.id != null) && (svc.id == buddie.name))
+                            {
+                                buddie.regUser = u;
+                                if ((Buddie.IsNullIcon(buddie.IconSymbol)) && (u.aprssymbol != null))
+                                {
+                                    buddie.IconSymbol = u.aprssymbol;
+                                    while (buddie.IconSymbol.Length < 1)
+                                        buddie.IconSymbol = "/" + buddie.IconSymbol;
+                                };
+                                return true;
+                            };
+                };
             return false;
         }
        
@@ -1550,6 +1572,7 @@ namespace OruxPals
         public string urlPath = "oruxpals";
         public string adminName = "ADMIN";
         public string sendBack = "no";
+        public string callsignToUser = "yes";
         public string infoIP = "127.0.0.1";
         [XmlElement("users")]
         public RegUsers users;

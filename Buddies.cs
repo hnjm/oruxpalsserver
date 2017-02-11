@@ -548,9 +548,14 @@ namespace OruxPals
     // 14
     public class SafetyRelatedBroadcastMessage
     {
-        public byte[] ToAIS()
+        public string Message = "PING";
+
+        public SafetyRelatedBroadcastMessage() { }
+        public SafetyRelatedBroadcastMessage(string Message) { this.Message = Message; }
+
+        public byte[] ToAIS(string text)
         {
-            string sftv = "WELCOME, AIS/APRS, " + OruxPalsServer.softwlc.ToUpper();
+            string sftv = text;
             byte[] unpackedBytes = new byte[5 + (int)(sftv.Length / 8.0 * 6.0 + 1)];
             AISTransCoder.SetBitsAsUnsignedInt(unpackedBytes, 0, 6, 14);
             AISTransCoder.SetBitsAsUnsignedInt(unpackedBytes, 6, 2, 0);
@@ -562,10 +567,10 @@ namespace OruxPals
 
         public override string ToString()
         {
-            return AISTransCoder.EnpackAISString(ToAIS());
+            return AISTransCoder.EnpackAISString(ToAIS(Message));
         }
 
-        public string ToWelcomeMsg()
+        public string ToPacketFrame()
         {
             string s = this.ToString();
             s = "!AIVDM,1,1,,A," + s + ",0";
