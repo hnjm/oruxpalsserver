@@ -237,6 +237,8 @@ namespace OruxPals
         [XmlAttribute]
         public string global2aprs = "no";
         [XmlAttribute]
+        public string global2frs = "no";
+        [XmlAttribute]
         public string aprs2global = "no";
         [XmlAttribute]
         public string any2global = "no";

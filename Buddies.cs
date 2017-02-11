@@ -29,6 +29,7 @@ namespace OruxPals
         private List<Buddie> buddies = new List<Buddie>();
         private List<BroadCastInfo> broadcastAIS = new List<BroadCastInfo>();
         private List<BroadCastInfo> broadcastAPRS = new List<BroadCastInfo>();
+        private List<BroadCastInfo> broadcastFRSS = new List<BroadCastInfo>();
 
         private bool keepAlive = true;
 
@@ -38,6 +39,7 @@ namespace OruxPals
         public delegate void BroadcastMethod(BroadCastInfo bdata);
         public BroadcastMethod onBroadcastAIS;
         public BroadcastMethod onBroadcastAPRS;
+        public BroadcastMethod onBroadcastFRS;
 
         public Buddies(byte maxHours, ushort greenMinutes)
         {
@@ -88,6 +90,11 @@ namespace OruxPals
             buddie.SetAPRS();
             lock (broadcastAPRS)
                 broadcastAPRS.Add(new BroadCastInfo(buddie.name, buddie.APRSData));
+
+            buddie.SetFRS();
+            lock (broadcastFRSS)
+                broadcastFRSS.Add(new BroadCastInfo(buddie.name, buddie.FRPOSData));
+
         }
 
         public Buddie[] Current
@@ -181,6 +188,18 @@ namespace OruxPals
                     bc--;
                     BroadcastAPRS(bdata);
                 };
+                bc = broadcastFRSS.Count;
+                while (bc > 0)
+                {
+                    BroadCastInfo bdata;
+                    lock (broadcastFRSS)
+                    {
+                        bdata = broadcastFRSS[0];
+                        broadcastFRSS.RemoveAt(0);
+                    };
+                    bc--;
+                    BroadcastFRS(bdata);
+                };
                 Thread.Sleep(1000);
             };
         }
@@ -196,11 +215,18 @@ namespace OruxPals
             if (onBroadcastAPRS != null)
                 onBroadcastAPRS(bdata);
         }
+
+        private void BroadcastFRS(BroadCastInfo bdata)
+        {
+            if (onBroadcastFRS != null)
+                onBroadcastFRS(bdata);
+        }
     }
 
     public class Buddie
     {
         public static Regex BuddieNameRegex = new Regex("^([A-Z0-9]{3,9})$");
+        public static Regex BuddieCallSignRegex = new Regex(@"^([A-Z0-9\-]{3,9})$");
         public static string symbolAny = "/*/</=/>/C/F/M/P/U/X/Y/Z/[/a/b/e/f/j/k/p/s/u/v/]\\j\\k\\u\\v/0/1/2/3/4/5/6/7/8/9/'/O";
         public static int symbolAnyLength = 40;
 
@@ -260,6 +286,9 @@ namespace OruxPals
         public string APRS = "";
         public byte[] APRSData = null;
 
+        public string FRPOS = "";
+        public byte[] FRPOSData = null;
+
         public OruxPalsServerConfig.RegUser regUser;
         public string IconSymbol = "//";
 
@@ -308,6 +337,24 @@ namespace OruxPals
                 course.ToString("000") + "/" + Math.Truncate(speed / 1.852).ToString("000") +
                 "\r\n";
             APRSData = Encoding.ASCII.GetBytes(APRS);
+        }
+
+        internal void SetFRS()
+        {
+            FRPOS =
+                OruxPalsServer.ChecksumAdd2Line("$FRPOS," + 
+                // $FRPOS,DDMM.mmmm,N,DDMM.mmmm,E,AA.a,SSS.ss,HHH.h,DDMMYY,hhmmss.dd,buddy*XX
+                Math.Truncate(lat).ToString("00") + ((lat - Math.Truncate(lat)) * 60.0).ToString("00.0000").Replace(",", ".") + "," +
+                (lat > 0 ? "N" : "S") + "," +
+                Math.Truncate(lon).ToString("000") + ((lon - Math.Truncate(lon)) * 60.0).ToString("00.0000").Replace(",", ".") + "," +
+                (lon > 0 ? "E" : "W") + "," +
+                 "00.0" + "," +
+                 (speed / 1.852).ToString("000.00", System.Globalization.CultureInfo.InvariantCulture) + "," +
+                 course.ToString("000") + ".0" + "," +
+                 DateTime.UtcNow.ToString("ddMMyy,HHmmss.00") + "," +
+                 this.name)+
+                "\r\n";
+            FRPOSData = Encoding.ASCII.GetBytes(FRPOS);
         }
 
         public override string ToString()

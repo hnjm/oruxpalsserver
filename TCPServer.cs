@@ -19,6 +19,8 @@ namespace OruxPals
         public static string softver { get { return "OruxPalsServer v0.6a"; } }
         public static string softwlc { get { return "OruxPals Server v0.6a"; } }
 
+        private static bool _NoSendToFRS = true; // GPSGate Tracker didn't support $FRPOS
+
         private OruxPalsServerConfig.RegUser[] regUsers;
         private Hashtable clientList = new Hashtable();
         private Thread listenThread = null;
@@ -78,12 +80,13 @@ namespace OruxPals
             BUDS = new Buddies(maxHours, greenMinutes);
             BUDS.onBroadcastAIS = new Buddies.BroadcastMethod(BroadcastAIS);
             BUDS.onBroadcastAPRS = new Buddies.BroadcastMethod(BroadcastAPRS);
+            BUDS.onBroadcastFRS = new Buddies.BroadcastMethod(BroadcastFRS);
             isRunning = true;
             listenThread = new Thread(MainThread);
             listenThread.Start();
 
-            if ((aprscfg != null) && (aprscfg.user != null) && (aprscfg.user != String.Empty) && (aprscfg.url != null) && (aprscfg.url != String.Empty) && 
-                ((aprscfg.global2ais == "yes") || (aprscfg.global2aprs == "yes") || (aprscfg.aprs2global == "yes") || (aprscfg.any2global == "yes")))
+            if ((aprscfg != null) && (aprscfg.user != null) && (aprscfg.user != String.Empty) && (aprscfg.url != null) && (aprscfg.url != String.Empty) &&
+                ((aprscfg.global2ais == "yes") || (aprscfg.global2aprs == "yes") || (aprscfg.global2frs == "yes") || (aprscfg.aprs2global == "yes") || (aprscfg.any2global == "yes")))
             {
                 aprsgw = new APRSISGateWay(aprscfg);
                 aprsgw.onPacket = new APRSISGateWay.onAPRSGWPacket(OnGlobalAPRSData);
@@ -156,6 +159,8 @@ namespace OruxPals
             string txt = sbm.ToPacketFrame() + "\r\n";
             byte[] ret = Encoding.ASCII.GetBytes(sbm.ToPacketFrame() + "\r\n");
             BroadcastAIS(ret);
+
+            PingFRS();
         }
 
         private void GetClient(TcpClient Client)
@@ -241,22 +246,25 @@ namespace OruxPals
                             break;
                     };
 
-                    // APRS Client //
-                    if ((cd.state == 4) && (rxText.Length > 0))
+                    if ((rxText.Length > 0) && (rxText.IndexOf("\n") > 0))
                     {
-                        string[] lines = rxText.Split(new string[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-                        rxText = "";
-                        foreach (string line in lines)
-                            OnAPRSData(cd, line);
-                    };
+                        // APRS Client //
+                        if (cd.state == 4)
+                        {
+                            string[] lines = rxText.Split(new string[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+                            rxText = "";
+                            foreach (string line in lines)
+                                OnAPRSData(cd, line);
+                        };
 
-                    // FRS Client //
-                    if ((cd.state == 5) && (rxText.Length > 0))
-                    {
-                        string[] lines = rxText.Split(new string[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-                        rxText = "";
-                        foreach (string line in lines)
-                            OnFRSData(cd, line);
+                        // FRS Client //
+                        if (cd.state == 5)
+                        {
+                            string[] lines = rxText.Split(new string[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+                            rxText = "";
+                            foreach (string line in lines)
+                                OnFRSData(cd, line);
+                        };
                     };
                 }
                 catch { };
@@ -296,12 +304,13 @@ namespace OruxPals
                 int psw = -1;
                 int.TryParse(password, out psw);
                 // check for valid HAM user or for valid OruxPals Server user
+                // these users can upload data to server
                 if ((psw == APRSData.CallsignChecksum(callsign)) || (psw == Buddie.Hash(callsign)))
                 {
                     cd.state = 4; //APRS
                     cd.user = callsign; // .user - valid username for callsign
 
-                    /* SEARCH REGISTERED */
+                    /* SEARCH REGISTERED as Global APRS user*/
                     if ((regUsers != null) && (regUsers.Length > 0))
                         foreach (OruxPalsServerConfig.RegUser u in regUsers)
                             if ((u.services != null) && (u.services.Length > 0))
@@ -309,6 +318,7 @@ namespace OruxPals
                                     if (svc.names.Contains("A"))
                                         if (callsign == svc.id)
                                             cd.user = u.name;
+
                     // remove ssid, `-` not valid symbol in name
                     if (cd.user.Contains("-")) cd.user = cd.user.Substring(0, cd.user.IndexOf("-"));
 
@@ -338,6 +348,7 @@ namespace OruxPals
             };
 
             // Invalid user
+            // these users cannot upload data to server (receive data only allowed)
             {
                 cd.state = 6; // APRS Read-Only
                 byte[] ret = Encoding.ASCII.GetBytes(res + "\r\n");
@@ -359,26 +370,36 @@ namespace OruxPals
             };            
         }
 
+        // on verified users // they can upload data to server
         private void OnAPRSData(ClientData cd, string line)
         {
             if (line.IndexOf("#") == 0) return;
             if (line.IndexOf(">") < 0) return;
 
+            // messages for server no need to save, broadcast & forward
             try { if (line.IndexOf("::") > 0) if(OnAPRSinternalMessage(cd, line)) return; } catch { };
             
             Buddie b = APRSData.ParseAPRSPacket(line);
             if ((b != null) && (b.name != null) && (b.name != String.Empty))
             {
-                // Direct Forward
+                // Direct Forward if user signed in with global Callsign (see xml comment) //
                 if ((aprsgw != null) && (aprscfg.aprs2global == "yes") && (regUsers != null) && (regUsers.Length > 0))
-                    foreach(OruxPalsServerConfig.RegUser u in regUsers)
+                    foreach (OruxPalsServerConfig.RegUser u in regUsers)
+                    {
+                        if (u.name == b.name) b.regUser = u;
                         if ((u.forward != null) && (u.forward.Contains("A")) && (u.services != null) && (u.services.Length > 0))
-                           foreach(OruxPalsServerConfig.RegUserSvc svc in u.services)
-                               if ((svc.names.Contains("A")) && (b.name == svc.id))
-                                   aprsgw.SendCommand(b.APRS);
+                            foreach (OruxPalsServerConfig.RegUserSvc svc in u.services)
+                            {
+                                if (b.name == svc.id) b.regUser = u;
+                                if (svc.names.Contains("A")) aprsgw.SendCommand(b.APRS);
+                            };
+                    };
 
-               // if callsign is not valid name for user
-               if ((b.name != cd.user) && (callsignToUser))
+               // If callsignToUser is `yes` and
+               // if packet sender is not user name (for registered users) or not as logged in name
+               // for all packets will set sender as user name (for registered users) or as logged in name
+               // If callsignToUser is `no` - verified user can send packets from any sender as is (no replacement)                               
+               if ((callsignToUser) && (b.name != cd.user))
                {
                    b.APRS = b.APRS.Replace(b.name + ">", cd.user + ">");
                    b.APRSData = Encoding.ASCII.GetBytes(b.APRS);
@@ -388,7 +409,7 @@ namespace OruxPals
                if ((b.lat != 0) && (b.lon != 0)) // if Position Packet send to All (AIS + APRS + Web)
                    OnNewData(b);
                else // if not Position Packet send as is only to all APRS clients
-                   Broadcast(b.APRSData, b.name, false, true);
+                   Broadcast(b.APRSData, b.name, false, true, false);
             };
         }
 
@@ -583,34 +604,68 @@ namespace OruxPals
             if (aprscfg.global2aprs == "yes")
                 BroadcastAPRS(Encoding.ASCII.GetBytes(line+"\r\n"));
 
-            if (aprscfg.global2ais == "yes")
+            if ((aprscfg.global2ais == "yes") || (aprscfg.global2frs == "yes"))
             {
                 Buddie b = APRSData.ParseAPRSPacket(line);
                 if ((b != null) && (b.name != null) && (b.name != String.Empty) && (b.lat != 0) && (b.lon != 0))                    
                 {
-                    b.SetAIS();
-                    b.green = true;
-                    BroadcastAIS(b.AISNMEA);
+                    if (aprscfg.global2ais == "yes")
+                    {
+                        b.SetAIS();
+                        b.green = true;
+                        BroadcastAIS(b.AISNMEA);
+                    };
+                    if (aprscfg.global2frs == "yes")
+                    {
+                        b.SetFRS();
+                        BroadcastFRS(b.FRPOSData);
+                    };
                 };
             };
         }
 
         private bool OnFRSClient(ClientData cd, string pairstring)
         {
-            byte[] ba = Encoding.ASCII.GetBytes("# " + softver);
+            byte[] ba = Encoding.ASCII.GetBytes("# " + softver + "\r\n");
             try { cd.stream.Write(ba, 0, ba.Length); } catch { };
 
             Match rx;
             if ((rx = Regex.Match(pairstring, @"^(\$FRPAIR),([\w\+]+),(\w+)\*(\w+)$")).Success)
             {
                 string phone = rx.Groups[2].Value;
-                //string imei = rx.Groups[3].Value;                
+                // string imei = rx.Groups[3].Value;
                 if(regUsers != null) 
                     foreach(OruxPalsServerConfig.RegUser u in regUsers)
                         if (u.phone == phone)
                         {
                             cd.state = 5;
                             cd.user = u.name;
+
+                            // Welcome message
+                            string pmsg = ChecksumAdd2Line("$FRCMD," + u.name + ",_Ping,Inline");
+                            byte[] data = Encoding.ASCII.GetBytes(pmsg + "\r\n");
+                            try { cd.client.GetStream().Write(data, 0, data.Length); }
+                            catch { };
+
+                            if (!_NoSendToFRS)
+                            {
+                                if (BUDS != null)
+                                {
+                                    Buddie[] bup = BUDS.Current;
+                                    List<byte[]> blist = new List<byte[]>();
+                                    foreach (Buddie b in bup)
+                                    {
+                                        if (sendBack)
+                                            blist.Add(b.FRPOSData);
+                                        else if (cd.user != b.name)
+                                            blist.Add(b.FRPOSData);
+                                    };
+                                    foreach (byte[] ba2 in blist)
+                                        try { cd.stream.Write(ba2, 0, ba2.Length); }
+                                        catch { };
+                                };
+                            };
+
                             return true;
                         };
             };
@@ -619,7 +674,7 @@ namespace OruxPals
 
         private void OnFRSData(ClientData cd, string line)
         {
-            Match rx;
+            Match rx; 
 
             if ((rx = Regex.Match(line, @"^(\$FRCMD),(\w*),(\w+),(\w*),?([\w\s.,=]*)\*(\w{2})$")).Success)
             {
@@ -637,9 +692,10 @@ namespace OruxPals
                    resp = ChecksumAdd2Line("$FRRET," + rx.Groups[2].Value + ",_SendMessage,Inline");
                    
                    // 0000.00000,N,00000.00000,E,0.0,0.000,0.0,190117,122708.837,0,BatteryLevel=78
+                   // 0000.00000,N,00000.00000,E,0.0,0.000,0.0,190117,122708.837,0,Temperature=-2
                    // DDMM.mmmm,N,DDMM.mmmm,E,AA.a,SSS.ss,HHH.h,DDMMYY,hhmmss.dd,fixOk,NOTE*xx
 
-                   Match rxa = Regex.Match(val2, @"^(\d{4}.\d+),(N|S),(\d{5}.\d+),(E|W),([0-9.]*),([0-9.]*),([0-9.]*),(\d{6}),([0-9.]{6,}),([\w.\s=]),([\w.\s=,]*)$");
+                   Match rxa = Regex.Match(val2, @"^(\d{4}.\d+),(N|S),(\d{5}.\d+),(E|W),([0-9.]*),([0-9.]*),([0-9.]*),(\d{6}),([0-9.]{6,}),([\w.\s=]),([\w.\s=\-,]*)$");
                    if (rxa.Success)
                    {
                        string sFix = sFix = rxa.Groups[10].Value;
@@ -664,7 +720,7 @@ namespace OruxPals
                            double rHeading = double.Parse(sHeading, System.Globalization.CultureInfo.InvariantCulture);
                            double rSpeed = double.Parse(sSpeed, System.Globalization.CultureInfo.InvariantCulture) * 1.852;
 
-                           Buddie b = new Buddie(4, cd.user, rLat, rLon, (short)rSpeed, (short)rHeading);
+                           Buddie b = new Buddie(4, cd.user, rLat, rLon, (short)Math.Round(rSpeed), (short)Math.Round(rHeading));
                            OnNewData(b);
                        };
                    };
@@ -747,7 +803,7 @@ namespace OruxPals
             string user = "user";
 
             string addit = "";
-            if ((query.Length > 0) && (Buddie.BuddieNameRegex.IsMatch(query)))
+            if ((query.Length > 0) && (Buddie.BuddieCallSignRegex.IsMatch(query)))
             {
                 Buddie[] all = BUDS.Current;
                 foreach (Buddie b in all)
@@ -795,13 +851,23 @@ namespace OruxPals
                 {
                     bool isreg = false;
                     if(regUsers != null)
-                        foreach(OruxPalsServerConfig.RegUser u in regUsers)
+                        foreach (OruxPalsServerConfig.RegUser u in regUsers)
+                        {
                             if (u.name == b.name)
                             {
                                 isreg = true;
                                 rbc++;
                                 break;
                             };
+                            if((u.services != null) && (u.services.Length > 0))
+                                foreach(OruxPalsServerConfig.RegUserSvc svc in u.services)
+                                    if(svc.names.Contains("A") &&(svc.id == b.name))
+                                    {
+                                        isreg = true;
+                                        rbc++;
+                                        break;
+                                    };
+                        };
                     if(isreg)
                       rbds += "<a href=\"" + urlPath + "i/" + b.name + "\">" + b.name + "</a> ";
                     else
@@ -1090,8 +1156,8 @@ namespace OruxPals
                         };
                         return true;
                     };
-                    if((u.services != null) && (u.services.Length > 0))
-                        foreach(OruxPalsServerConfig.RegUserSvc svc in u.services)
+                    if ((u.services != null) && (u.services.Length > 0))
+                        foreach (OruxPalsServerConfig.RegUserSvc svc in u.services)
                             if ((svc.names != null) && (svc.names.Contains("A")) && (svc.id != null) && (svc.id == buddie.name))
                             {
                                 buddie.regUser = u;
@@ -1109,7 +1175,8 @@ namespace OruxPals
        
         private void OnNewData(Buddie buddie)
         {
-            CheckRegisteredUser(buddie);           
+            if(buddie.regUser == null)
+                CheckRegisteredUser(buddie);           
 
             if (BUDS != null)
                 BUDS.Update(buddie);
@@ -1156,25 +1223,55 @@ namespace OruxPals
 
         public void BroadcastAIS(BroadCastInfo bdata)
         {
-            Broadcast(bdata.data, bdata.user, true, false);
+            Broadcast(bdata.data, bdata.user, true, false, false);
         }
 
         public void BroadcastAIS(byte[] data)
         {
-            Broadcast(data, "", true, false);
+            Broadcast(data, "", true, false, false);
         }
 
         public void BroadcastAPRS(BroadCastInfo bdata)
         {
-            Broadcast(bdata.data, bdata.user, false, true);
+            Broadcast(bdata.data, bdata.user, false, true, false);
         }
 
         public void BroadcastAPRS(byte[] data)
         {
-            Broadcast(data, "", false, true);
+            Broadcast(data, "", false, true, false);
         }
 
-        public void Broadcast(byte[] data, string fromUser, bool bAIS, bool bAPRS)
+        public void BroadcastFRS(BroadCastInfo bdata)
+        {
+            Broadcast(bdata.data, bdata.user, false, false, true);
+        }
+
+        public void BroadcastFRS(byte[] data)
+        {
+            Broadcast(data, "", false, false, true);
+        }
+
+        public void PingFRS()
+        {
+            List<ClientData> cdlist = new List<ClientData>();
+            lock (clientList)
+                foreach (object obj in clientList.Values)
+                {
+                    if (obj == null) continue;
+                    ClientData cd = (ClientData)obj;
+                    if (cd.state == 5) // FRS
+                        cdlist.Add(cd);
+                };
+            foreach (ClientData cd in cdlist)
+            {
+                string pmsg = ChecksumAdd2Line("$FRCMD," + cd.user + ",_Ping,Inline");
+                byte[] data = Encoding.ASCII.GetBytes(pmsg + "\r\n");
+                try { cd.client.GetStream().Write(data, 0, data.Length); }
+                catch { };
+            };
+        }
+
+        public void Broadcast(byte[] data, string fromUser, bool bAIS, bool bAPRS, bool bFRS)
         {
             List<ClientData> cdlist = new List<ClientData>();
             lock (clientList)
@@ -1190,6 +1287,16 @@ namespace OruxPals
                             cdlist.Add(cd);
                         else if (fromUser != cd.user)
                             cdlist.Add(cd);
+                    };
+                    if (!_NoSendToFRS)
+                    {
+                        if ((cd.state == 5) && bFRS) // FRS
+                        {
+                            if (sendBack)
+                                cdlist.Add(cd);
+                            else if (fromUser != cd.user)
+                                cdlist.Add(cd);
+                        };
                     };
                     if ((cd.state == 6) && bAPRS) // APRS readonly
                         cdlist.Add(cd);
@@ -1249,7 +1356,7 @@ namespace OruxPals
             return checksum.ToString("X2");
         }
 
-        private static string ChecksumAdd2Line(string line)
+        public static string ChecksumAdd2Line(string line)
         {
             return line + "*" + ChecksumHex(line);
         }

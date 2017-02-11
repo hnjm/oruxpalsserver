@@ -8,7 +8,7 @@
 	<greenMinutes help="by default all new vessels are class A (violet) if there is no info from vessel for XX minutes - it will be class B (green)" default="60">60</greenMinutes>
 	<urlPath help="url path, must be 8-symbols length" default="oruxpals">oruxpals</urlPath>
 	<adminName help="admin name for online generate hashsum for users">admin</adminName>
-	<sendBack help="send back APRS packets to clients yes/no">no</sendBack>
+	<sendBack help="send back APRS packets to clients and send back FRS coordinates to source yes/no">no</sendBack>
 	<callsignToUser help="Source Callsign from all incoming APRS packets will set to userName for internal usage: yes/no">yes</callsignToUser>
 	
 	<!-- registered Users -->
@@ -17,7 +17,7 @@
 		<!-- 
 			name - user name in system, phone - user phone for identify GPSGate Tracker client
 			forward - (string of char) for what global web service(s) server will retranslate users coordinates (can be modified through APRSDroid)
-			If users connect via APRS client in system his name always will be as defined userName in <u name="..."/>, not callsign. 
+			If users connect via APRS client in system his name always will be as defined userName in <u name="..."/>, not callsign, if callsignToUser set to yes
 			Callsign uses if user is not registered into system (but without ssid) or for forward (to & from) data to global APRS.
 		-->
 		<u name="TESTING1" phone="+11030040" forward="D" aprssymbol="/>" help="sample, for real users delete this tag"/>
@@ -37,8 +37,8 @@
 	<!-- CROSS GATE To Global APRS-IS Network -->
 	
 	<!--  
-		Al incoming packets from APRS clients will goes to global APRS directly if client connected to server by his amateur callsign, not system userName.
-		This client must be registered <u name="..."/>, forward <u forward="..."/> must contains `A` and must be specified `A` service with id as user's amateur callsign <u ...><service names="A" id="CALLSIGN"/></u>
+		All incoming packets from APRS clients will goes to global APRS directly if client connected to server by his amateur callsign, not system userName.
+		This client must be registered <u name="..."/>, forward <u forward=".A."/> must contains `A` and must be specified `A` service with id as user's amateur callsign <u ...><service names="A" id="CALLSIGN"/></u>
 		In this way his system name will be as userName <u name="..."/>, but packets will directly forward to global APRS-IS as is, exclude messages to system (ORXPLS-GW,ORXPLS-ST,ORXPLS-CM)		
 		
 		Position packets from not APRS clients will goes to global APRS only for registered users <u name="..."/>, forward <u forward="..."/> must contains `A` and must be specified `A` service with id as user's amateur callsign <u ...><service names="A" id="CALLSIGN"/></u>
@@ -59,7 +59,7 @@
     
 	<!-- filter help: http://aprsisce.wikidot.com/aprs-is-filters -->
 	<!-- filter: r/55.55/37.55/25 p/R/U b/UB3APB* g/UB3APB* f/UB3APB/25 f/UB3APB-7/25 -->
-	<APRSIS name="A" user="ORXPLS-GW" password="-1" filter="r/55.55/37.55/25" global2ais="no" global2aprs="yes" aprs2global="yes" any2global="no">euro.aprs2.net:14580</APRSIS>
+	<APRSIS name="A" user="ORXPLS-GW" password="-1" filter="r/55.55/37.55/25" global2ais="no" global2aprs="yes" global2frs="no" aprs2global="yes" any2global="no">euro.aprs2.net:14580</APRSIS>
 	
 	<!-- determines user defined tracking web services -->
 	<forwardServices help="use to forward incoming data to online tracking services">
