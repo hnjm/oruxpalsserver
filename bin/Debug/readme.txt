@@ -48,6 +48,7 @@ CONFIGURE APRS Client (APRSDroid)
 		msg to ORXPLS-GW: forward 0  - set forward state to 0 (zero, no forward)
 		msg to ORXPLS-GW: forward ALH  - set forward state to ALH
 		msg to ORXPLS-GW: forward ALHDO  - set forward state to ALHDO
+		msg to ORXPLS-GW: kill UserName  - delete from server info about user
 		msg to ORXPLS-GW: admin NewUserName   - get APRS password & OruxPalsServer password for NewUserName (admin from xml tag <adminName/>)
 		msg to ORXPLS-ST: global status here  - send status message to global APRS `:>`
 		msg to ORXPLS-CM: ?  - get comment for position report forwarding data to APRS-IS when client connected not via APRS 

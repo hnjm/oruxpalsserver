@@ -204,7 +204,7 @@ namespace OruxPals
                     cd.stream.Write(ret, 0, ret.Length);
                 };
 
-                // After 3.5 seconds if no data
+                // After 4.5 seconds if no data
                 if ((cd.state == 0) && (waitCounter-- == 0))
                 {
                     cd.state = 1;
@@ -215,27 +215,27 @@ namespace OruxPals
                 {
                     try { rxAvailable -= (rxCount = cd.stream.Read(rxBuffer, 0, rxBuffer.Length > rxAvailable ? rxAvailable : rxBuffer.Length)); }
                     catch { break; };
-                    if (rxCount > 0) rxText += Encoding.ASCII.GetString(rxBuffer, 0, rxCount);
+                    if (rxCount > 0) rxText += Encoding.ASCII.GetString(rxBuffer, 0, rxCount);                    
                 };
 
-                // READ INCOMING DATA
+                // READ INCOMING DATA //
                 try
                 {
-                    // GPSGate, MapMyTracks or APRS Client //
-                    if ((cd.state == 0) && (rxText.Length >= 4))
+                    // Identificate Browser, GPSGate, MapMyTracks, APRS or FRS Client //
+                    if ((cd.state == 0) && (rxText.Length >= 4) && (rxText.IndexOf("\n") > 0))
                     {
-                        if (rxText.IndexOf("GET") == 0)
+                        if (rxText.IndexOf("GET") == 0) // GPSGate, Browser
                             OnGet(cd, rxText);
-                        else if (rxText.IndexOf("POST") == 0)
+                        else if (rxText.IndexOf("POST") == 0) // MapMyTracks
                             OnPost(cd, rxText);
-                        else if (rxText.IndexOf("user") == 0)
+                        else if (rxText.IndexOf("user") == 0) // APRS
                         {
                             if (OnAPRSClient(cd, rxText.Replace("\r", "").Replace("\n", "")))
                                 rxText = "";
                             else
                                 break;
                         }
-                        else if (rxText.IndexOf("$FRPAIR") == 0)
+                        else if (rxText.IndexOf("$FRPAIR") == 0) // FRS
                         {
                             if (OnFRSClient(cd, rxText.Replace("\r", "").Replace("\n", "")))
                                 rxText = "";
@@ -246,12 +246,13 @@ namespace OruxPals
                             break;
                     };
 
-                    if ((rxText.Length > 0) && (rxText.IndexOf("\n") > 0))
+                    // Receive incoming data from identificated clients only
+                    if ((cd.state > 0) && (rxText.Length > 0) && (rxText.IndexOf("\n") > 0))
                     {
-                        // APRS Client //
+                        // Verified APRS Client //
                         if (cd.state == 4)
                         {
-                            string[] lines = rxText.Split(new string[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+                            string[] lines = rxText.Split(new string[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
                             rxText = "";
                             foreach (string line in lines)
                                 OnAPRSData(cd, line);
@@ -260,11 +261,13 @@ namespace OruxPals
                         // FRS Client //
                         if (cd.state == 5)
                         {
-                            string[] lines = rxText.Split(new string[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+                            string[] lines = rxText.Split(new string[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
                             rxText = "";
                             foreach (string line in lines)
                                 OnFRSData(cd, line);
                         };
+
+                        rxText = "";
                     };
                 }
                 catch { };
@@ -290,7 +293,8 @@ namespace OruxPals
 
         private bool OnAPRSClient(ClientData cd, string loginstring)
         {
-            string res = "# logresp user unverified, can't upload data";
+            Console.WriteLine("> " + loginstring);
+            string res = "# logresp user unverified, server " + serviceName.ToUpper();
 
             Match rm = Regex.Match(loginstring, @"^user\s([\w\-]{3,})\spass\s([\d\-]+)\svers\s([\w\d\-.]+)\s([\w\d\-.\+]+)");
             if (rm.Success)
@@ -322,7 +326,7 @@ namespace OruxPals
                     // remove ssid, `-` not valid symbol in name
                     if (cd.user.Contains("-")) cd.user = cd.user.Substring(0, cd.user.IndexOf("-"));
 
-                    res = "# logresp " + callsign + " verified, server " + serviceName;
+                    res = "# logresp " + callsign + " verified, server " + serviceName.ToUpper();
                     byte[] ret = Encoding.ASCII.GetBytes(res + "\r\n");
                     try { cd.stream.Write(ret, 0, ret.Length); }
                     catch { };
@@ -367,13 +371,27 @@ namespace OruxPals
                 };
 
                 return true;
-            };            
+            };
         }
 
         // on verified users // they can upload data to server
         private void OnAPRSData(ClientData cd, string line)
         {
-            if (line.IndexOf("#") == 0) return;
+            Console.WriteLine("> " + line);
+            if (line.IndexOf("#") == 0) // comment
+            {
+                string filter = "";
+                if (line.IndexOf("filter") > 0) filter = line.Substring(line.IndexOf("filter"));
+                // filter ... active
+                if (filter != "")
+                {
+                    string resp = "# "+filter+" inactive\r\n";
+                    byte[] bts = Encoding.ASCII.GetBytes(resp);
+                    try { cd.stream.Write(bts, 0, bts.Length); }
+                    catch { }
+                };
+                return;
+            };
             if (line.IndexOf(">") < 0) return;
 
             // messages for server no need to save, broadcast & forward

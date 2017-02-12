@@ -100,6 +100,7 @@ namespace OruxPals
         private void ReadIncomingDataThread()
         {
             uint incomingMessagesCounter = 0;
+            DateTime lastIncDT = DateTime.UtcNow;
             while (_active)
             {
                 // connect
@@ -115,6 +116,7 @@ namespace OruxPals
                         tcp_client.GetStream().Write(arr, 0, arr.Length);
                         incomingMessagesCounter = 0;
                         _state = "Connected";
+                        lastIncDT = DateTime.UtcNow;
                     }
                     catch (Exception ex)
                     {
@@ -125,6 +127,19 @@ namespace OruxPals
                         continue;
                     };
                 };
+
+                // ping (keep alive connection)
+                if (DateTime.UtcNow.Subtract(lastIncDT).TotalMinutes > 3)
+                {
+                    try
+                    {
+                        string txt2send = "#ping\r\n";
+                        byte[] arr = System.Text.Encoding.GetEncoding(1251).GetBytes(txt2send);
+                        tcp_client.GetStream().Write(arr, 0, arr.Length);
+                        lastIncDT = DateTime.UtcNow;
+                    }
+                    catch { continue; };
+                };                
                 
                 // read
                 try
@@ -133,6 +148,7 @@ namespace OruxPals
                     int ava = 0;
                     if ((ava = tcp_client.Available) > 0)
                     {
+                        lastIncDT = DateTime.UtcNow;
                         int rd = tcp_client.GetStream().Read(data, 0, ava > data.Length ? data.Length : ava);
                         string txt = System.Text.Encoding.GetEncoding(1251).GetString(data, 0, rd);
                         string[] lines = txt.Split(new string[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);

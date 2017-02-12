@@ -227,7 +227,7 @@ namespace OruxPals
     {
         public static Regex BuddieNameRegex = new Regex("^([A-Z0-9]{3,9})$");
         public static Regex BuddieCallSignRegex = new Regex(@"^([A-Z0-9\-]{3,9})$");
-        public static string symbolAny = "/*/</=/>/C/F/M/P/U/X/Y/Z/[/a/b/e/f/j/k/p/s/u/v/]\\j\\k\\u\\v/0/1/2/3/4/5/6/7/8/9/'/O";
+        public static string symbolAny = "/*/</=/>/C/F/M/P/U/X/Y/Z/[/a/b/e/f/j/k/p/s/u/v\\O\\j\\k\\u\\v/0/1/2/3/4/5/6/7/8/9/'/O";
         public static int symbolAnyLength = 40;
 
         internal static ulong _id = 0;
