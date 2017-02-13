@@ -18,8 +18,8 @@ namespace OruxPals
     public class OruxPalsServer
     {
         public static string serviceName { get { return "OruxPals"; } }
-        public static string softver { get { return "OruxPalsServer v0.7a"; } }
-        public static string softwlc { get { return "OruxPals Server v0.7a"; } }
+        public static string softver { get { return "OruxPalsServer v0.7.1a"; } }
+        public static string softwlc { get { return "OruxPals Server v0.7.1a"; } }
 
         private static bool _NoSendToFRS = true; // GPSGate Tracker didn't support $FRPOS
 
@@ -582,7 +582,7 @@ namespace OruxPals
 
                 if ((msg != null) && (msg != String.Empty))
                 {
-
+                    BUDS.UpdateStatus(buddie, msg);
                     if (id != "")
                     {
                         aprsgw.SendCommand(id + ">APRS,TCPIP*:>" + msg + "\r\n");
@@ -593,9 +593,7 @@ namespace OruxPals
                         catch { };
                     }
                     else if((buddie != null) && (buddie.regUser != null))
-                    {
-                        BUDS.UpdateStatus(buddie, msg);
-
+                    {                        
                         string cmd2s = buddie.regUser.name + ">APRS,TCPIP*:>" + msg + "\r\n";
                         byte[] bts = Encoding.ASCII.GetBytes(cmd2s);
                         BroadcastAPRS(bts);
@@ -782,6 +780,7 @@ namespace OruxPals
                            double rSpeed = double.Parse(sSpeed, System.Globalization.CultureInfo.InvariantCulture) * 1.852;
 
                            Buddie b = new Buddie(4, cd.user, rLat, rLon, (short)Math.Round(rSpeed), (short)Math.Round(rHeading));
+                           b.lastPacket = line;
                            OnNewData(b);
                        };
                    };
@@ -886,6 +885,7 @@ namespace OruxPals
                         addit += String.Format("Symbol: {0}\r\n<br/>", System.Security.SecurityElement.Escape(b.IconSymbol));
                         addit += String.Format("Comment: {0}\r\n<br/>", b.Comment == null ? "" : System.Security.SecurityElement.Escape(b.Comment));
                         addit += String.Format("Status: {0}\r\n<br/>", b.Status == null ? "" : System.Security.SecurityElement.Escape(b.Status));
+                        // addit += String.Format("Origin: {0}\r\n<br/>", b.lastPacket);
                         addit += String.Format("<a href=\"" + urlPath + "view#{2}\" target=\"_blank\"><img src=\"http://static-maps.yandex.ru/1.x/?ll={0},{1}&size=500,300&z=13&l=map&pt={0},{1},vkbkm\"/></a>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
                         addit += String.Format("<a href=\"" + urlPath + "view#{2}\" target=\"_blank\"><img src=\"http://static-maps.yandex.ru/1.x/?ll={0},{1}&size=500,300&z=15&l=map&pt={0},{1},vkbkm\"/></a>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
                         addit += String.Format("<br/><small><a href=\"https://yandex.ru/maps/?text={1},{0}\" target=\"_blank\">view on yandex</a> | <a href=\"http://maps.google.com/?q={1}+{0}\" target=\"_blank\">view on google</a><small>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
@@ -1090,6 +1090,7 @@ namespace OruxPals
                 cd.client.Close();
 
                 Buddie b = new Buddie(1, user, lat, lon, (short)speed, (short)heading);
+                b.lastPacket = cmd;
                 OnNewData(b);
             }
             catch { HTTPClientSendError(cd.client, 417); return; };
@@ -1185,6 +1186,7 @@ namespace OruxPals
                             //DT = UnixTimeStampToDateTime(double.Parse(pp[i + 3], System.Globalization.CultureInfo.InvariantCulture));                            
                         };
                         Buddie b = new Buddie(2, user, lat, lon, 0, 0);
+                        b.lastPacket = ask.ToString();
                         OnNewData(b);
                     };
                 };

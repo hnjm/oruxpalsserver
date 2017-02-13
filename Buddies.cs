@@ -323,6 +323,7 @@ namespace OruxPals
 
         public OruxPalsServerConfig.RegUser regUser;
         public string IconSymbol = "//";
+
         public string parsedComment = "";
         public string Comment
         {
@@ -338,6 +339,8 @@ namespace OruxPals
             }
         }
         public string Status = "";
+
+        public string lastPacket = "";
 
         public bool PositionIsValid
         {
@@ -1181,6 +1184,7 @@ namespace OruxPals
             if (packet.Length < 2) return null; // invalid packet
 
             Buddie b = new Buddie(3, callsign, 0, 0, 0, 0);
+            b.lastPacket = line;
             b.APRS = line + "\r\n";
             b.APRSData = Encoding.ASCII.GetBytes(b.APRS);
 
