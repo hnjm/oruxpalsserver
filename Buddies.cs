@@ -69,12 +69,8 @@ namespace OruxPals
                 if (buddies.Count > 0)
                     for (int i = buddies.Count - 1; i >= 0; i--)
                         if (buddie.name == buddies[i].name)
-                        {
-                            if((buddie.source != 3) && (!Buddie.IsNullIcon(buddies[i].IconSymbol)))
-                                buddie.IconSymbol = buddies[i].IconSymbol;
-                            if(Buddie.IsNullIcon(buddie.IconSymbol))
-                                buddie.IconSymbol = buddies[i].IconSymbol;
-                            buddie.ID = buddies[i].ID;                            
+                        {                            
+                            Buddie.CopyData(buddies[i], buddie);
                             buddies.RemoveAt(i);
                         };
 
@@ -134,6 +130,42 @@ namespace OruxPals
                         return true;
                     };
             return false;    
+        }
+
+        public bool UpdateComment(Buddie buddie, string newComment)
+        {
+            if (buddie == null) return false;
+
+            lock (buddies)
+            {
+                if (buddies.Count > 0)
+                    for (int i = buddies.Count - 1; i >= 0; i--)
+                        if ((buddie.name == buddies[i].name) || ((buddies[i].regUser != null) && (buddie.regUser != null) && (buddie.regUser.name == buddies[i].regUser.name)))
+                        {
+                            buddies[i].parsedComment = newComment;
+                            if (buddies[i].regUser != null)
+                                buddies[i].regUser.comment = newComment;
+                            return true;
+                        };
+            };
+            return false;
+        }
+
+        public bool UpdateStatus(Buddie buddie, string status)
+        {
+            if (buddie == null) return false;
+
+            lock (buddies)
+            {
+                if (buddies.Count > 0)
+                    for (int i = buddies.Count - 1; i >= 0; i--)
+                        if ((buddie.name == buddies[i].name) || ((buddies[i].regUser != null) && (buddie.regUser != null) && (buddie.regUser.name == buddies[i].regUser.name)))
+                        {
+                            buddies[i].Status = status;
+                            return true;
+                        };
+            };
+            return false;
         }
 
         private void ClearThread()
@@ -291,6 +323,26 @@ namespace OruxPals
 
         public OruxPalsServerConfig.RegUser regUser;
         public string IconSymbol = "//";
+        public string parsedComment = "";
+        public string Comment
+        {
+            get
+            {
+                if ((parsedComment != null) && (parsedComment != String.Empty)) return parsedComment;
+                if ((regUser != null) && (regUser.comment != null) && (regUser.comment != String.Empty)) return regUser.comment;
+                return "";
+            }
+            set
+            {
+                parsedComment = value;
+            }
+        }
+        public string Status = "";
+
+        public bool PositionIsValid
+        {
+            get { return (lat != 0) && (lon != 0); }
+        }
 
         public Buddie(byte source, string name, double lat, double lon, short speed, short course)
         {
@@ -324,7 +376,15 @@ namespace OruxPals
 
         internal void SetAPRS()
         {
-            if (this.source == 3) return;
+            if (this.source == 3)
+            {
+                if (((this.parsedComment == null) || (this.parsedComment == String.Empty)) && (this.Comment != null))
+                {
+                    this.APRS = this.APRS.Insert(this.APRS.Length - 2, " " + this.Comment);
+                    this.APRSData = Encoding.ASCII.GetBytes(this.APRS);
+                };
+                return;
+            };
 
             APRS =
                 name + ">APRS,TCPIP*:=" + // Position without timestamp + APRS message
@@ -335,6 +395,7 @@ namespace OruxPals
                 (lon > 0 ? "E" : "W") +
                 IconSymbol[1] +
                 course.ToString("000") + "/" + Math.Truncate(speed / 1.852).ToString("000") +
+                ((this.Comment != null) && (this.Comment != String.Empty) ? " " + this.Comment : "") +
                 "\r\n";
             APRSData = Encoding.ASCII.GetBytes(APRS);
         }
@@ -395,6 +456,28 @@ namespace OruxPals
                 i += 3;
             };
             return (uint)(hash & 0xFFFFFF);
+        }
+
+        public static void CopyData(Buddie copyFrom, Buddie copyTo)
+        {
+            if ((copyTo.source != 3) && (!Buddie.IsNullIcon(copyFrom.IconSymbol)))
+                copyTo.IconSymbol = copyFrom.IconSymbol;
+
+            if (Buddie.IsNullIcon(copyTo.IconSymbol))
+                copyTo.IconSymbol = copyFrom.IconSymbol;
+
+            if ((copyTo.parsedComment == null) || (copyTo.parsedComment == String.Empty))
+            {
+                copyTo.parsedComment = copyFrom.parsedComment;
+                if ((copyTo.source == 3) && (copyTo.parsedComment != null) && (copyTo.parsedComment != String.Empty))
+                {
+                    copyTo.APRS = copyTo.APRS.Insert(copyTo.APRS.Length - 2, " " + copyTo.Comment);
+                    copyTo.APRSData = Encoding.ASCII.GetBytes(copyTo.APRS);
+                };
+            };
+            
+            copyTo.ID = copyFrom.ID;
+            copyTo.Status = copyFrom.Status;
         }
     }
 
@@ -1208,8 +1291,11 @@ namespace OruxPals
                     if ((symbol != '_') && (aftertext.Length >= 7) && (aftertext[3] == '/')) // course/speed 000/000
                     {
                         short.TryParse(aftertext.Substring(0, 3), out b.course);
-                        short.TryParse(aftertext.Substring(4, 3), out b.speed);                        
+                        short.TryParse(aftertext.Substring(4, 3), out b.speed);
+                        aftertext = aftertext.Remove(0, 7);
                     };
+
+                    b.Comment = aftertext.Trim();
 
                 };
                 break;

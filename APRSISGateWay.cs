@@ -33,6 +33,9 @@ namespace OruxPals
                 return _state;
             }
         }
+
+        public string lastRX = "";
+        public string lastTX = "";
         
         public APRSISGateWay(APRSISConfig cfg)
         {
@@ -176,14 +179,18 @@ namespace OruxPals
                 if (line.IndexOf(" verified") > 0)
                     _state = "Connected rx/tx, " + line.Substring(line.IndexOf("server"));
                 if (line.IndexOf(" unverified") > 0)
-                    _state = "Connected rx only, " + line.Substring(line.IndexOf("server"));                
+                    _state = "Connected rx only, " + line.Substring(line.IndexOf("server"));
             };
+                
             
             // Console.WriteLine(line); // DEBUG //            
 
-            bool isComment = line.IndexOf("#") == 0;                                    
+            bool isComment = line.IndexOf("#") == 0;
             if (!isComment)
-               onPacket(line);
+            {
+                lastRX = DateTime.UtcNow.ToString() + " " + line;
+                onPacket(line);
+            };
         }
 
         public delegate void onAPRSGWPacket(string line);
@@ -194,6 +201,7 @@ namespace OruxPals
         {
             if (Connected)
             {
+                lastTX = DateTime.UtcNow.ToString() + " " + cmd;
                 byte[] arr = System.Text.Encoding.GetEncoding(1251).GetBytes(cmd);
                 try
                 {

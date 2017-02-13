@@ -1,3 +1,5 @@
+#define _DEBUGORUX
+
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -16,8 +18,8 @@ namespace OruxPals
     public class OruxPalsServer
     {
         public static string serviceName { get { return "OruxPals"; } }
-        public static string softver { get { return "OruxPalsServer v0.6a"; } }
-        public static string softwlc { get { return "OruxPals Server v0.6a"; } }
+        public static string softver { get { return "OruxPalsServer v0.7a"; } }
+        public static string softwlc { get { return "OruxPals Server v0.7a"; } }
 
         private static bool _NoSendToFRS = true; // GPSGate Tracker didn't support $FRPOS
 
@@ -270,7 +272,8 @@ namespace OruxPals
                         rxText = "";
                     };
                 }
-                catch { };
+                catch (Exception ex) 
+                { };
 
                 Thread.Sleep(100);
             };
@@ -293,7 +296,10 @@ namespace OruxPals
 
         private bool OnAPRSClient(ClientData cd, string loginstring)
         {
+            #if DEBUGORUX
             Console.WriteLine("> " + loginstring);
+            #endif
+
             string res = "# logresp user unverified, server " + serviceName.ToUpper();
 
             Match rm = Regex.Match(loginstring, @"^user\s([\w\-]{3,})\spass\s([\d\-]+)\svers\s([\w\d\-.]+)\s([\w\d\-.\+]+)");
@@ -377,8 +383,12 @@ namespace OruxPals
         // on verified users // they can upload data to server
         private void OnAPRSData(ClientData cd, string line)
         {
+            #if DEBUGORUX
             Console.WriteLine("> " + line);
-            if (line.IndexOf("#") == 0) // comment
+            #endif
+
+            // COMMENT STRING
+            if (line.IndexOf("#") == 0)
             {
                 string filter = "";
                 if (line.IndexOf("filter") > 0) filter = line.Substring(line.IndexOf("filter"));
@@ -392,26 +402,48 @@ namespace OruxPals
                 };
                 return;
             };
-            if (line.IndexOf(">") < 0) return;
-
-            // messages for server no need to save, broadcast & forward
-            try { if (line.IndexOf("::") > 0) if(OnAPRSinternalMessage(cd, line)) return; } catch { };
+            if (line.IndexOf(">") < 0) return;            
             
+            // PARSE NORMAL PACKET
             Buddie b = APRSData.ParseAPRSPacket(line);
             if ((b != null) && (b.name != null) && (b.name != String.Empty))
             {
-                // Direct Forward if user signed in with global Callsign (see xml comment) //
-                if ((aprsgw != null) && (aprscfg.aprs2global == "yes") && (regUsers != null) && (regUsers.Length > 0))
+                bool forward2aprs = false;
+
+                if((regUsers != null) && (regUsers.Length > 0))
                     foreach (OruxPalsServerConfig.RegUser u in regUsers)
-                    {
-                        if (u.name == b.name) b.regUser = u;
-                        if ((u.forward != null) && (u.forward.Contains("A")) && (u.services != null) && (u.services.Length > 0))
+                    {                        
+                        if ((!callsignToUser) && (u.name == b.name)) b.regUser = u; // packet callsign as userName
+                        if (callsignToUser && (u.name == cd.user)) b.regUser = u; // client logon with userName
+
+                        if ((u.services != null) && (u.services.Length > 0))
                             foreach (OruxPalsServerConfig.RegUserSvc svc in u.services)
-                            {
-                                if (b.name == svc.id) b.regUser = u;
-                                if (svc.names.Contains("A")) aprsgw.SendCommand(b.APRS);
-                            };
+                                if (svc.names.Contains("A") && (b.name == svc.id)) // client logon with Callsign
+                                {
+                                    b.regUser = u;
+                                    // can forward to global only if user logon with callsign, and forward set to A
+                                    forward2aprs = (u.forward != null) && (u.forward.Contains("A")); 
+                                };                        
                     };
+
+                // 2 SERVER MESSAGE
+                // messages for server no need to save, broadcast & forward
+                try { if (line.IndexOf("::") > 0) if (OnAPRSinternalMessage(cd, b, line)) return; }
+                catch { };
+                
+                // Direct Forward if user logon with global Callsign (see xml comment) //
+                if (forward2aprs && (aprsgw != null) && (aprscfg.aprs2global == "yes"))
+                {
+                    string broadcastline = b.APRS;
+                    // if no comment passed set comment from registered user info
+                    if ((b.regUser != null) && (b.PositionIsValid) && ((b.parsedComment == null) || (b.parsedComment == String.Empty)) && ((b.regUser.comment != null) && ((b.regUser.comment != String.Empty))))
+                        broadcastline = line + " " + b.regUser.comment + "\r\n";
+                    aprsgw.SendCommand(broadcastline);
+                };
+                
+                // if status
+                if ((line.IndexOf(":>") > 0) && (BUDS != null))
+                    BUDS.UpdateStatus(b, line.Substring(line.IndexOf(":>")+2));
 
                // If callsignToUser is `yes` and
                // if packet sender is not user name (for registered users) or not as logged in name
@@ -424,20 +456,39 @@ namespace OruxPals
                    b.name = cd.user;
                };
 
-               if ((b.lat != 0) && (b.lon != 0)) // if Position Packet send to All (AIS + APRS + Web)
+               if ((b.PositionIsValid)) // if Position Packet send to All (AIS + APRS + Web)
                    OnNewData(b);
                else // if not Position Packet send as is only to all APRS clients
                    Broadcast(b.APRSData, b.name, false, true, false);
             };
         }
 
-        private bool OnAPRSinternalMessage(ClientData cd, string line)
+        private bool OnAPRSinternalMessage(ClientData cd, Buddie buddie, string line)
         {
             string frm = line.Substring(0, line.IndexOf(">"));
             string msg = line.Substring(line.IndexOf("::") + 12).Trim();
 
             bool sendack = false;
             byte[] tosendack = new byte[0];
+
+            // FIND USER, callsign of the packet must be within registered users //
+            OruxPalsServerConfig.RegUser cu = null;
+            if ((frm != "") && (regUsers != null))
+                foreach (OruxPalsServerConfig.RegUser u in regUsers)
+                {
+                    if (frm == u.name)
+                    {
+                        cu = u;
+                        break;
+                    };
+                    if (u.services != null)
+                        foreach (OruxPalsServerConfig.RegUserSvc svc in u.services)
+                            if (svc.names.Contains("A") && (svc.id == frm))
+                            {
+                                cu = u;
+                                break;
+                            };
+                };
 
             if (line.IndexOf("::ORXPLS-GW:") > 0) // ping & forward
             {
@@ -455,26 +506,8 @@ namespace OruxPals
                     if (ms == null) return true;
                     if (ms.Length == 0) return true;
 
-                    if (ms[0] == "FORWARD") // forward
-                    {
-                        OruxPalsServerConfig.RegUser cu = null;
-                        if (regUsers != null)
-                            foreach (OruxPalsServerConfig.RegUser u in regUsers)
-                            {
-                                if (frm == u.name)
-                                {
-                                    cu = u;
-                                    break;
-                                };
-                                if (u.services != null)
-                                    foreach (OruxPalsServerConfig.RegUserSvc svc in u.services)
-                                        if (svc.names.Contains("A") && (svc.id == frm))
-                                        {
-                                            cu = u;
-                                            break;
-                                        };
-                            };
-
+                    if (ms[0] == "FORWARD") // forward only for registered users
+                    {                        
                         if (cu == null)
                         {
                             string cmd2s = "ORXPLS-GW>APRS,TCPIP*::" + frm + ": no forward privileges\r\n";
@@ -492,27 +525,9 @@ namespace OruxPals
                             catch { };
                         };
                     }
-                    else if ((ms[0] == "KILL") && (ms.Length > 1)) // forward
+                    else if ((ms[0] == "KILL") && (ms.Length > 1)) // kill only for registered users
                     {
                         string u2k = ms[1].ToUpper();
-                        OruxPalsServerConfig.RegUser cu = null;
-                        if (regUsers != null)
-                            foreach (OruxPalsServerConfig.RegUser u in regUsers)
-                            {
-                                if (frm == u.name)
-                                {
-                                    cu = u;
-                                    break;
-                                };
-                                if (u.services != null)
-                                    foreach (OruxPalsServerConfig.RegUserSvc svc in u.services)
-                                        if (svc.names.Contains("A") && (svc.id == frm))
-                                        {
-                                            cu = u;
-                                            break;
-                                        };
-                            };
-
                         if (cu == null)
                         {
                             string cmd2s = "ORXPLS-GW>APRS,TCPIP*::" + frm + ": no kill privileges\r\n";
@@ -530,7 +545,7 @@ namespace OruxPals
                             catch { };
                         };
                     }
-                    else if ((ms[0] == adminName.ToUpper()) && (ms.Length > 1)) // hashsum
+                    else if ((ms[0] == adminName.ToUpper()) && (ms.Length > 1)) // hashsum for any user that know admin
                     {
                         string res = "";
                         for (int i = 1; i < ms.Length; i++) res += "u " + ms[i] + " a " + APRSData.CallsignChecksum(ms[i]) + " p " + Buddie.Hash(ms[i]) + " ";
@@ -542,7 +557,7 @@ namespace OruxPals
                 };
             };
 
-            if (line.IndexOf("::ORXPLS-ST:") > 0) // status
+            if (line.IndexOf("::ORXPLS-ST:") > 0) // global status only for APRS global users
             {
                 sendack = true;
                 if (msg.Contains("{"))
@@ -552,7 +567,7 @@ namespace OruxPals
                     tosendack = Encoding.ASCII.GetBytes(cmd2s);
                 };
 
-                OruxPalsServerConfig.RegUser cu = null;
+                cu = null;
                 string id = "";
                 if ((regUsers != null) && (aprsgw != null) && (aprscfg.aprs2global == "yes"))
                     foreach (OruxPalsServerConfig.RegUser u in regUsers)                    
@@ -565,11 +580,30 @@ namespace OruxPals
                                     break;
                                 };
 
-                if ((msg != null) && (msg != String.Empty) && (cu != null) && (id != ""))
+                if ((msg != null) && (msg != String.Empty))
                 {
-                    aprsgw.SendCommand(id + ">APRS,TCPIP*:>" + msg + "\r\n");
 
-                    string cmd2s = "ORXPLS-ST>APRS,TCPIP*::" + frm + ": " + msg + "\r\n";
+                    if (id != "")
+                    {
+                        aprsgw.SendCommand(id + ">APRS,TCPIP*:>" + msg + "\r\n");
+
+                        string cmd2s = "ORXPLS-ST>APRS,TCPIP*::" + frm + ": " + msg + "\r\n";
+                        byte[] bts = Encoding.ASCII.GetBytes(cmd2s);
+                        try { cd.stream.Write(bts, 0, bts.Length); }
+                        catch { };
+                    }
+                    else if((buddie != null) && (buddie.regUser != null))
+                    {
+                        BUDS.UpdateStatus(buddie, msg);
+
+                        string cmd2s = buddie.regUser.name + ">APRS,TCPIP*:>" + msg + "\r\n";
+                        byte[] bts = Encoding.ASCII.GetBytes(cmd2s);
+                        BroadcastAPRS(bts);
+                    };
+                }
+                else
+                {
+                    string cmd2s = "ORXPLS-ST>APRS,TCPIP*::" + frm + ": FAILED\r\n";
                     byte[] bts = Encoding.ASCII.GetBytes(cmd2s);
                     try { cd.stream.Write(bts, 0, bts.Length); }
                     catch { };
@@ -587,23 +621,32 @@ namespace OruxPals
                 };
 
                 msg = msg.Trim();
-
-                OruxPalsServerConfig.RegUserSvc rus = null;
-                if (regUsers != null)
-                    foreach (OruxPalsServerConfig.RegUser u in regUsers)
-                        if (u.services != null)
-                            foreach (OruxPalsServerConfig.RegUserSvc svc in u.services)
-                                if (svc.names.Contains("A") && (svc.id == frm))
-                                {
-                                    rus = svc;
-                                    break;
-                                };
-
-                if ((msg != null) && (msg != String.Empty) && (msg != "?") && (rus != null))
-                    rus.comment = msg;
-                if (rus != null)
+                bool updated = false;
+                
+                if ((msg != null) && (msg != String.Empty) && (msg != "?") && (buddie != null))
                 {
-                    string cmd2s = "ORXPLS-CM>APRS,TCPIP*::" + frm + ": " + rus.comment + "\r\n";
+                    if (BUDS != null)
+                        updated = BUDS.UpdateComment(buddie, msg);
+                    if ((!updated) && (buddie.regUser != null))
+                    {
+                        buddie.regUser.comment = msg;
+                        updated = true;
+                    };
+                };
+                if (updated)
+                {
+                    string cmd2s = "ORXPLS-CM>APRS,TCPIP*::" + frm + ": " + msg + "\r\n";
+                    byte[] bts = Encoding.ASCII.GetBytes(cmd2s);
+                    try { cd.stream.Write(bts, 0, bts.Length); }
+                    catch { };
+                }
+                else
+                {
+                    string cmd2s = "";
+                    if ((msg == "?") && (buddie != null) && (buddie.regUser != null))
+                        cmd2s = "ORXPLS-CM>APRS,TCPIP*::" + frm + ": " + buddie.regUser.comment + "\r\n";
+                    else
+                        cmd2s = "ORXPLS-CM>APRS,TCPIP*::" + frm + ": User not found\r\n";
                     byte[] bts = Encoding.ASCII.GetBytes(cmd2s);
                     try { cd.stream.Write(bts, 0, bts.Length); }
                     catch { };
@@ -625,7 +668,7 @@ namespace OruxPals
             if ((aprscfg.global2ais == "yes") || (aprscfg.global2frs == "yes"))
             {
                 Buddie b = APRSData.ParseAPRSPacket(line);
-                if ((b != null) && (b.name != null) && (b.name != String.Empty) && (b.lat != 0) && (b.lon != 0))                    
+                if ((b != null) && (b.name != null) && (b.name != String.Empty) && (b.PositionIsValid))                    
                 {
                     if (aprscfg.global2ais == "yes")
                     {
@@ -840,6 +883,9 @@ namespace OruxPals
                         addit += String.Format("Position: {0} {1}\r\n<br/>", b.lat, b.lon);
                         addit += String.Format("Speed: {0} kmph\r\n<br/>", b.speed);
                         addit += String.Format("Heading: {0}&deg;\r\n<br/>", b.course);
+                        addit += String.Format("Symbol: {0}\r\n<br/>", System.Security.SecurityElement.Escape(b.IconSymbol));
+                        addit += String.Format("Comment: {0}\r\n<br/>", b.Comment == null ? "" : System.Security.SecurityElement.Escape(b.Comment));
+                        addit += String.Format("Status: {0}\r\n<br/>", b.Status == null ? "" : System.Security.SecurityElement.Escape(b.Status));
                         addit += String.Format("<a href=\"" + urlPath + "view#{2}\" target=\"_blank\"><img src=\"http://static-maps.yandex.ru/1.x/?ll={0},{1}&size=500,300&z=13&l=map&pt={0},{1},vkbkm\"/></a>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
                         addit += String.Format("<a href=\"" + urlPath + "view#{2}\" target=\"_blank\"><img src=\"http://static-maps.yandex.ru/1.x/?ll={0},{1}&size=500,300&z=15&l=map&pt={0},{1},vkbkm\"/></a>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
                         addit += String.Format("<br/><small><a href=\"https://yandex.ru/maps/?text={1},{0}\" target=\"_blank\">view on yandex</a> | <a href=\"http://maps.google.com/?q={1}+{0}\" target=\"_blank\">view on google</a><small>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
@@ -901,7 +947,9 @@ namespace OruxPals
                 if(regUsers != null)
                     foreach(OruxPalsServerConfig.RegUser u in regUsers)
                         if((u.forward != null) && (u.forward.Contains("A"))) uc++;
-                fsvc += String.Format("&nbsp; &nbsp; APRS-IS Gateway with {1} clients: {0}\r\n<br/>", aprsgw.State, uc);
+                fsvc += String.Format("&nbsp; &nbsp; A as APRS-IS Gateway with {1} clients: {0}\r\n<br/>", aprsgw.State, uc);
+                fsvc += String.Format("&nbsp; &nbsp; &nbsp; &nbsp; Last RX Packet: {0}\r\n<br/>", aprsgw.lastRX);
+                fsvc += String.Format("&nbsp; &nbsp; &nbsp; &nbsp; Last TX Packet: {0}\r\n<br/>", aprsgw.lastTX);
             };
             if (forwardServices != null)
                 foreach (OruxPalsServerConfig.FwdSvc svc in forwardServices)
@@ -968,8 +1016,8 @@ namespace OruxPals
                         if (b.source == 3) src = "APRS Client";
                         if (b.source == 4) src = "FRS (GPSGate Tracker)";
                         cdata += (cdata.Length > 0 ? "," : "") + "{" + String.Format(
-                            "id:{7},user:'{0}',received:'{1}',lat:{2},lon:{3},speed:{4},hdg:{5},source:'{6}',age:{8},symbol:'{9}',r:{10}",
-                            new object[] { b.name, b.last, b.lat.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture), b.lon.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture), b.speed, b.course, src, b.ID, (int)DateTime.UtcNow.Subtract(b.last).TotalSeconds, b.IconSymbol.Replace(@"\", @"\\").Replace(@"'", @"\'"), b.regUser == null ? 0 : 1 }) + "}";
+                            "id:{7},user:'{0}',received:'{1}',lat:{2},lon:{3},speed:{4},hdg:{5},source:'{6}',age:{8},symbol:'{9}',r:{10},comment:'{11}',status:'{12}'",
+                            new object[] { b.name, b.last, b.lat.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture), b.lon.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture), b.speed, b.course, src, b.ID, (int)DateTime.UtcNow.Subtract(b.last).TotalSeconds, b.IconSymbol.Replace(@"\", @"\\").Replace(@"'", @"\'"), b.regUser == null ? 0 : 1, (b.Comment == null ? "" : System.Security.SecurityElement.Escape(b.Comment)), (b.Status == null ? "" : System.Security.SecurityElement.Escape(b.Status)) }) + "}";
                     };
                 };
                 cdata = "[" + cdata + "]";
@@ -1163,7 +1211,14 @@ namespace OruxPals
             if (regUsers != null)
                 foreach (OruxPalsServerConfig.RegUser u in regUsers)
                 {
-                    if (u.name == buddie.name)
+                    bool found = false;
+                    if (u.name == buddie.name) found = true;
+                    if(!found)
+                        if ((u.services != null) && (u.services.Length > 0))
+                            foreach (OruxPalsServerConfig.RegUserSvc svc in u.services)
+                                if ((svc.names != null) && (svc.names.Contains("A")) && (svc.id != null) && (svc.id == buddie.name))
+                                    found = true;
+                    if (found)
                     {
                         buddie.regUser = u;
                         if ((Buddie.IsNullIcon(buddie.IconSymbol)) && (u.aprssymbol != null))
@@ -1174,19 +1229,6 @@ namespace OruxPals
                         };
                         return true;
                     };
-                    if ((u.services != null) && (u.services.Length > 0))
-                        foreach (OruxPalsServerConfig.RegUserSvc svc in u.services)
-                            if ((svc.names != null) && (svc.names.Contains("A")) && (svc.id != null) && (svc.id == buddie.name))
-                            {
-                                buddie.regUser = u;
-                                if ((Buddie.IsNullIcon(buddie.IconSymbol)) && (u.aprssymbol != null))
-                                {
-                                    buddie.IconSymbol = u.aprssymbol;
-                                    while (buddie.IconSymbol.Length < 1)
-                                        buddie.IconSymbol = "/" + buddie.IconSymbol;
-                                };
-                                return true;
-                            };
                 };
             return false;
         }
@@ -1194,7 +1236,7 @@ namespace OruxPals
         private void OnNewData(Buddie buddie)
         {
             if(buddie.regUser == null)
-                CheckRegisteredUser(buddie);           
+                CheckRegisteredUser(buddie);
 
             if (BUDS != null)
                 BUDS.Update(buddie);
@@ -1204,7 +1246,7 @@ namespace OruxPals
             {
                 // forward to APRS Global
                 if ((aprsgw != null) && (aprscfg.any2global == "yes") && (buddie.source != 3) && (buddie.regUser.forward.Contains("A")))
-                {
+                {                    
                     foreach (OruxPalsServerConfig.RegUserSvc svc in buddie.regUser.services)
                         if (svc.names.Contains("A"))
                         {
@@ -1213,8 +1255,8 @@ namespace OruxPals
                             if (buddie.source == 2) comment = "#ORXPLSm ";
                             if (buddie.source == 3) comment = "#ORXPLSa ";
                             if (buddie.source == 4) comment = "#ORXPLSf ";
-                            if (svc.comment != null) comment += svc.comment;
-                            string aprs = buddie.APRS.Replace(buddie.name + ">", svc.id + ">").Replace("\r\n", comment + "\r\n");
+                            if (buddie.Comment != null) comment += buddie.Comment;
+                            string aprs = buddie.APRS.Replace(buddie.name + ">", svc.id + ">").Replace("\r\n", " " + comment + "\r\n");
                             aprsgw.SendCommandWithDelay(svc.id, aprs);
                         };
                 };
@@ -1648,8 +1690,6 @@ namespace OruxPals
             public string names = "";
             [XmlAttribute]
             public string id = "";
-            [XmlAttribute]
-            public string comment = "";            
         }
 
         public class RegUsers
@@ -1668,6 +1708,8 @@ namespace OruxPals
             public string forward;
             [XmlAttribute]
             public string aprssymbol = "/>";
+            [XmlAttribute]
+            public string comment = "";            
             [XmlElement("service")]
             public RegUserSvc[] services;
         }

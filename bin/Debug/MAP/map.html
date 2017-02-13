@@ -168,14 +168,16 @@
 		var marker_cache = [];
 		
 		//	UPDATE CLIENT DATA
-		var UpdateData = function(user,dt,lat,lon,speed,heading,source,id,age,symbol,registered)
+		var UpdateData = function(user,dt,lat,lon,speed,heading,source,id,age,symbol,registered,comment,status)
 		{
 			var txt = '<div>';
 			txt += 'Last: '+dt+' UTC<br/>';
 			txt += 'Position: '+lat+' '+lon+'<br/>';
 			txt += 'Heading: '+heading+'&deg;<br/>';
-			txt += 'Speed : '+speed+' km/h<br/>';
-			txt += 'Source : '+source+' <br/>';
+			txt += 'Speed: '+speed+' km/h<br/>';
+			txt += 'Source: '+source+' <br/>';
+			txt += 'Comment: <span style="color:navy;font-style:italic;">'+comment+'</span> <br/>';
+			txt += 'Status: <span style="color:maroon;font-style:italic;">'+status+'</span> <br/>';
 			txt += '</div>';			
 						
 			for(i=0;i<marker_cache.length;i++) marker_cache[i].marker.closePopup();
@@ -332,7 +334,7 @@
 				var robj = (new Function('','return '+data))();				
 				if((robj != null) && (robj.length > 0))
 					for (var i=0;i<robj.length;i++)
-						UpdateData(robj[i].user,robj[i].received,robj[i].lat,robj[i].lon,robj[i].speed,robj[i].hdg,robj[i].source,robj[i].id,robj[i].age,robj[i].symbol,robj[i].r);
+						UpdateData(robj[i].user,robj[i].received,robj[i].lat,robj[i].lon,robj[i].speed,robj[i].hdg,robj[i].source,robj[i].id,robj[i].age,robj[i].symbol,robj[i].r,robj[i].comment,robj[i].status);
 				
 				Follow();
 			});
