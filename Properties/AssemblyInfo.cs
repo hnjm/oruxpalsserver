@@ -6,7 +6,7 @@ using System.Runtime.InteropServices;
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
 [assembly: AssemblyTitle("OruxPalsServer")]
-[assembly: AssemblyDescription("OruxPals Tracking Server")]
+[assembly: AssemblyDescription("OruxPalsServer")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("dkxce@mail.ru")]
 [assembly: AssemblyProduct("OruxPalsServer")]
@@ -29,5 +29,5 @@ using System.Runtime.InteropServices;
 //      Build Number
 //      Revision
 //
-[assembly: AssemblyVersion("17.2.13.7")]
-[assembly: AssemblyFileVersion("17.2.13.7")]
+[assembly: AssemblyVersion("17.2.14.7")]
+[assembly: AssemblyFileVersion("17.2.14.7")]

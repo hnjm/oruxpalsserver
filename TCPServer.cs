@@ -17,9 +17,9 @@ namespace OruxPals
 {
     public class OruxPalsServer
     {
-        public static string serviceName { get { return "OruxPals"; } }
-        public static string softver { get { return "OruxPalsServer v0.7.1a"; } }
-        public static string softwlc { get { return "OruxPals Server v0.7.1a"; } }
+        public static string serviceName { get { return "OruxPalsServer"; } }
+        public string ServerName = "OruxPalsServer";
+        public static string softver { get { return "OruxPalsServer v0.7.3a"; } }
 
         private static bool _NoSendToFRS = true; // GPSGate Tracker didn't support $FRPOS
 
@@ -65,6 +65,7 @@ namespace OruxPals
             if (config.users != null) regUsers = config.users.users;
             aprscfg = config.aprsis;
             forwardServices = config.forwardServices.services;
+            ServerName = config.ServerName;
         }        
 
         public bool Running { get { return isRunning; } }
@@ -157,7 +158,7 @@ namespace OruxPals
             byte[] pingdata = Encoding.ASCII.GetBytes(pingmsg);
             BroadcastAPRS(pingdata);
 
-            SafetyRelatedBroadcastMessage sbm = new SafetyRelatedBroadcastMessage("PING, " + OruxPalsServer.softwlc.ToUpper());
+            SafetyRelatedBroadcastMessage sbm = new SafetyRelatedBroadcastMessage("PING, " + OruxPalsServer.softver.ToUpper());
             string txt = sbm.ToPacketFrame() + "\r\n";
             byte[] ret = Encoding.ASCII.GetBytes(sbm.ToPacketFrame() + "\r\n");
             BroadcastAIS(ret);
@@ -201,7 +202,7 @@ namespace OruxPals
                 //   only when any data received from server // client save 2.5 sec to identify
                 if ((cd.state == 0) && (waitCounter == 25))
                 {
-                    SafetyRelatedBroadcastMessage sbm = new SafetyRelatedBroadcastMessage("WELCOME, AIS/APRS, " + OruxPalsServer.softwlc.ToUpper());
+                    SafetyRelatedBroadcastMessage sbm = new SafetyRelatedBroadcastMessage("WELCOME, AIS/APRS, " + OruxPalsServer.softver.ToUpper());
                     byte[] ret = Encoding.ASCII.GetBytes(sbm.ToPacketFrame() + "\r\n");
                     cd.stream.Write(ret, 0, ret.Length);
                 };
@@ -313,7 +314,7 @@ namespace OruxPals
 
                 int psw = -1;
                 int.TryParse(password, out psw);
-                // check for valid HAM user or for valid OruxPals Server user
+                // check for valid HAM user or for valid OruxPalsServer user
                 // these users can upload data to server
                 if ((psw == APRSData.CallsignChecksum(callsign)) || (psw == Buddie.Hash(callsign)))
                 {
@@ -865,6 +866,7 @@ namespace OruxPals
             string addit = "";
             if ((query.Length > 0) && (Buddie.BuddieCallSignRegex.IsMatch(query)))
             {
+                addit = "";
                 Buddie[] all = BUDS.Current;
                 foreach (Buddie b in all)
                     if (b.name == query)
@@ -874,18 +876,36 @@ namespace OruxPals
                         if (b.source == 2) src = "OruxMaps MapMyTracks";
                         if (b.source == 3) src = "APRS Client";
                         if (b.source == 4) src = "FRS (GPSGate Tracker)";
+                        
+                        string symb = b.IconSymbol;
+                        string prose = "primary";
+			            if(symb.Length == 2)
+			            {
+				            if(symb[0] == '\\') prose = "secondary";
+				            symb = symb.Substring(1);
+			            };
+			            string symbtable = "!\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";						
+			            int idd = symbtable.IndexOf(symb);
+			            if(idd < 0) idd = 14;
+			            int itop =  (int)Math.Truncate(idd / 16.0) * 24;
+			            int ileft = (idd % 16) * 24;
+			            symb = "background:url(../v/images/"+prose+".png) -"+ileft.ToString()+"px -"+itop.ToString()+"px no-repeat;";
+                        symb = "<span style=\"display:inline-block;height:24px;width:24px;" + symb + "\">&nbsp;</span>";
+
                         user = b.name;
-                        addit = String.Format("Information about: <b>{0}</b>\r\n<br/>", b.name);
-                        addit += String.Format("Source: {0}\r\n<br/>", src);
-                        addit += String.Format("Received: {0} UTC\r\n<br/>", b.last);
-                        addit += String.Format("Valid till: {0} UTC\r\n<br/>", b.last.AddHours(maxHours));
-                        addit += String.Format("Position: {0} {1}\r\n<br/>", b.lat, b.lon);
-                        addit += String.Format("Speed: {0} kmph\r\n<br/>", b.speed);
-                        addit += String.Format("Heading: {0}&deg;\r\n<br/>", b.course);
-                        addit += String.Format("Symbol: {0}\r\n<br/>", System.Security.SecurityElement.Escape(b.IconSymbol));
-                        addit += String.Format("Comment: {0}\r\n<br/>", b.Comment == null ? "" : System.Security.SecurityElement.Escape(b.Comment));
-                        addit += String.Format("Status: {0}\r\n<br/>", b.Status == null ? "" : System.Security.SecurityElement.Escape(b.Status));
-                        // addit += String.Format("Origin: {0}\r\n<br/>", b.lastPacket);
+                        addit += "<table cellpadding=\"1\" cellspacing=\"1\" border=\"0\">";
+                        addit += String.Format("<tr><td><small>User:</small></td><td> <b>{0} {1}</td></tr>", b.name, b.regUser == null ? "" : "&reg; " + (b.regUser.forward == null ? "" : b.regUser.forward));
+                        addit += String.Format("<tr><td><small>Source:</small></td><td> {0}</td></tr>", src);
+                        addit += String.Format("<tr><td><small>Received:</small></td><td> {0} UTC</td></tr>", b.last);
+                        addit += String.Format("<tr><td><small>Valid till:</small></td><td> {0} UTC</td></tr>", b.last.AddHours(maxHours));
+                        addit += String.Format(System.Globalization.CultureInfo.InvariantCulture, "<tr><td><small>Position:</small></td><td> {0:00.00000000} {1:00.00000000}</td></tr>", b.lat, b.lon);
+                        addit += String.Format(System.Globalization.CultureInfo.InvariantCulture, "<tr><td><small>Speed:</small></td><td> {0} km/h; {1:0.0} mph; {2:0.0} knots</td></tr>", b.speed, b.speed * 0.62137119, b.speed / 1.852);
+                        addit += String.Format("<tr><td><small>Heading:</small></td><td> {0}&deg; {1}</td></tr>", b.course, HeadingToText(b.course));
+                        addit += String.Format("<tr><td><small>Symbol:</small></td><td> {0} {1}</td></tr>", System.Security.SecurityElement.Escape(b.IconSymbol), symb);
+                        addit += String.Format("<tr><td><small>Comment:</small></td><td style=\"color:navy;\"> {0}</td></tr>", b.Comment == null ? "" : System.Security.SecurityElement.Escape(b.Comment));
+                        addit += String.Format("<tr><td><small>Status:</small></td><td style=\"color:maroon;\"> {0}</td></tr>", b.Status == null ? "" : System.Security.SecurityElement.Escape(b.Status));
+                        addit += String.Format("<tr><td><small>Origin:</small></td><td style=\"color:gray;\"><small> {0}</small></td></tr>", b.lastPacket);
+                        addit += "</table>";
                         addit += String.Format("<a href=\"" + urlPath + "view#{2}\" target=\"_blank\"><img src=\"http://static-maps.yandex.ru/1.x/?ll={0},{1}&size=500,300&z=13&l=map&pt={0},{1},vkbkm\"/></a>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
                         addit += String.Format("<a href=\"" + urlPath + "view#{2}\" target=\"_blank\"><img src=\"http://static-maps.yandex.ru/1.x/?ll={0},{1}&size=500,300&z=15&l=map&pt={0},{1},vkbkm\"/></a>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
                         addit += String.Format("<br/><small><a href=\"https://yandex.ru/maps/?text={1},{0}\" target=\"_blank\">view on yandex</a> | <a href=\"http://maps.google.com/?q={1}+{0}\" target=\"_blank\">view on google</a><small>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
@@ -947,9 +967,12 @@ namespace OruxPals
                 if(regUsers != null)
                     foreach(OruxPalsServerConfig.RegUser u in regUsers)
                         if((u.forward != null) && (u.forward.Contains("A"))) uc++;
-                fsvc += String.Format("&nbsp; &nbsp; A as APRS-IS Gateway with {1} clients: {0}\r\n<br/>", aprsgw.State, uc);
-                fsvc += String.Format("&nbsp; &nbsp; &nbsp; &nbsp; Last RX Packet: {0}\r\n<br/>", aprsgw.lastRX);
-                fsvc += String.Format("&nbsp; &nbsp; &nbsp; &nbsp; Last TX Packet: {0}\r\n<br/>", aprsgw.lastTX);
+                fsvc += String.Format("&nbsp; &nbsp; A as a with {0} clients: \r\n<br/>", uc);
+                fsvc += "<span style=\"color:silver;font-size:11px;\">";
+                fsvc += String.Format("&nbsp; &nbsp; &nbsp; &nbsp; <b>status:</b> {0}\r\n<br/>", aprsgw.State);
+                fsvc += String.Format("&nbsp; &nbsp; &nbsp; &nbsp; <b>last rx:</b> {0}\r\n<br/>", aprsgw.lastRX);
+                fsvc += String.Format("&nbsp; &nbsp; &nbsp; &nbsp; <b>last tx:</b> {0}\r\n<br/>", aprsgw.lastTX);
+                fsvc += "</span>";
             };
             if (forwardServices != null)
                 foreach (OruxPalsServerConfig.FwdSvc svc in forwardServices)
@@ -961,24 +984,26 @@ namespace OruxPals
                                 if ((u.forward != null) && (u.forward.Contains(svc.name))) uc++;
                         fsvc += "&nbsp; &nbsp; " + String.Format("{0} as {1} with {2} clients\r\n<br/>", svc.name, svc.type, uc);
                     };
-            HTTPClientSendResponse(cd.client, String.Format(
-                "Server: {0}\r\n<br/>" +
+            HTTPClientSendResponse(cd.client, String.Format(                
+                "<span style=\"color:red;\">Server: {0}</span>\r\n<br/>" +
+                "<span style=\"color:maroon;\">Name: " + ServerName + "</span>\r\n<br/>" +
                 "Port: {4}\r\n<br/>" +
-                "Started {1} UTC\r\n<br/>" +
-                "<a href=\"{5}view\">Map View</a> | <a href=\"{5}v/resources\">Resources</a>\r\n<br/><br/>" +
-                "Clients AIS/APRS(R)/FRS: {2} / {7} ({10}) / {8}\r\n<br/>" +
-                "Buddies Online/Registered/Unregistered: {3}\r\n<br/>" +
-                "{6}\r\n<br/>" +
-                "Forward Services:\r\b<br/>"+
-                "{9}\r\n<br/>"+
-                "Client connect Information:\r\n<br/>" +                
+                "Started {1} UTC\r\n<br/>" +                
+                "<a href=\"{5}info\">Main View</a> | <a href=\"{5}view\">Map View</a> | <a href=\"{5}v/resources\">Resources</a>\r\n<hr/>" +
+                "<div style=\"color:blue;\">Clients AIS/APRS(R)/FRS: {2} / {7} ({10}) / {8}\r\n</div><hr/>" +
+                "<div style=\"color:green;\">Buddies Online/Registered/Unregistered: {3}\r\n<br/>" +
+                "{6}\r\n</div><hr/>" +
+                "<div style=\"color:maroon;\">Forward Services:\r\b<br/>" +
+                "{9}\r\n</div><hr/>"+
+                "<div style=\"color:navy;\">Client connect information:\r\n<br/>" +
                 "&nbsp; &nbsp; OruxMaps\r\n<br/>" +
-                "&nbsp; &nbsp; &nbsp; &nbsp; AIS URL: "+infoIP+":{4}\r\n<br/>" +
-                "&nbsp; &nbsp; &nbsp; &nbsp; GPSGate URL: http://"+infoIP+":{4}{5}@" + user + "/\r\n<br/>" +
-                "&nbsp; &nbsp; &nbsp; &nbsp; MapMyTracks URL: http://"+infoIP+":{4}{5}m/\r\n<br/>" +
-                "&nbsp; &nbsp; APRS URL (APRSDroid): "+infoIP+":{4}\r\n<br/>" +
-                "&nbsp; &nbsp; FRS URL (GPSGate Tracker): "+infoIP+":{4}\r\n<br/>" +
-                "<hr/>"+
+                "&nbsp; &nbsp; &nbsp; &nbsp; - AIS <span style=\"color:black;\">URL:</span> <span style=\"color:blue;\">" + infoIP + ":{4}</span> <i style=\"color:gray;\">receive data only</i>\r\n<br/>" +
+                "&nbsp; &nbsp; &nbsp; &nbsp; - APRS <span style=\"color:black;\">URL:</span> <span style=\"color:blue;\">" + infoIP + ":{4}</span> <i style=\"color:gray;\">user and password required</i>\r\n<br/>" +
+                "&nbsp; &nbsp; &nbsp; &nbsp; - GPSGate <span style=\"color:black;\">URL:</span> <span style=\"color:blue;\">http://" + infoIP + ":{4}{5}@" + user + "/</span> <i style=\"color:gray;\">set user password as IMEI</i>\r\n<br/>" +
+                "&nbsp; &nbsp; &nbsp; &nbsp; - MapMyTracks <span style=\"color:black;\">URL:</span> <span style=\"color:blue;\">http://" + infoIP + ":{4}{5}m/</span> <i style=\"color:gray;\">user and password required</i>\r\n<br/>" +
+                "&nbsp; &nbsp; APRS (APRSDroid) <span style=\"color:black;\">URL:</span> <span style=\"color:blue;\">" + infoIP + ":{4}</span> <i style=\"color:gray;\">user and password required</i>\r\n<br/>" +
+                "&nbsp; &nbsp; FRS (GPSGate Tracker) <span style=\"color:black;\">URL:</span> <span style=\"color:blue;\">" + infoIP + ":{4}</span> <i style=\"color:gray;\">user's phone number must be registered</i>\r\n<br/>" +
+                "</div><hr/>" +
                 addit,
                 new object[] { 
                 softver, 
@@ -1017,7 +1042,17 @@ namespace OruxPals
                         if (b.source == 4) src = "FRS (GPSGate Tracker)";
                         cdata += (cdata.Length > 0 ? "," : "") + "{" + String.Format(
                             "id:{7},user:'{0}',received:'{1}',lat:{2},lon:{3},speed:{4},hdg:{5},source:'{6}',age:{8},symbol:'{9}',r:{10},comment:'{11}',status:'{12}'",
-                            new object[] { b.name, b.last, b.lat.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture), b.lon.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture), b.speed, b.course, src, b.ID, (int)DateTime.UtcNow.Subtract(b.last).TotalSeconds, b.IconSymbol.Replace(@"\", @"\\").Replace(@"'", @"\'"), b.regUser == null ? 0 : 1, (b.Comment == null ? "" : System.Security.SecurityElement.Escape(b.Comment)), (b.Status == null ? "" : System.Security.SecurityElement.Escape(b.Status)) }) + "}";
+                            new object[] { 
+                                b.name, b.last, 
+                                b.lat.ToString("0.00000000", System.Globalization.CultureInfo.InvariantCulture), 
+                                b.lon.ToString("0.00000000", System.Globalization.CultureInfo.InvariantCulture), 
+                                b.speed, b.course, 
+                                src, b.ID, 
+                                (int)DateTime.UtcNow.Subtract(b.last).TotalSeconds, 
+                                b.IconSymbol.Replace(@"\", @"\\").Replace(@"'", @"\'"), 
+                                b.regUser == null ? 0 : 1, 
+                                (b.Comment == null ? "" : System.Security.SecurityElement.Escape(b.Comment)), 
+                                (b.Status == null ? "" : System.Security.SecurityElement.Escape(b.Status)) }) + "}";
                     };
                 };
                 cdata = "[" + cdata + "]";
@@ -1031,7 +1066,8 @@ namespace OruxPals
                 {
                     string ffn = OruxPalsServerConfig.GetCurrentDir() + @"\MAP\resources\";
                     string[] flist = Directory.GetFiles(ffn,"*.*",SearchOption.TopDirectoryOnly);
-                    string txtout = "<span style=\"color:red;\"> " + OruxPalsServer.serviceName + " Resources:</span>\r\n<br/>";
+                    string txtout = "<span style=\"color:red;\">Server: " + OruxPalsServer.softver + "</span><br/><span style=\"color:maroon;\">Name: " + ServerName + "</span>\r\n<br/>Resources:\r\n<br/>";
+                    txtout += "- <a href=\"../info\">&nbsp;..&nbsp;<a/><br/>";
                     if (flist != null)
                         foreach (string f in flist)
                         {
@@ -1660,6 +1696,32 @@ namespace OruxPals
             return dtDateTime;
         }
 
+        public static string HeadingToText(int hdg)
+        {
+            int d = (int)Math.Round(hdg / 22.5);
+            switch (d)
+            {
+                case 0: return "N";
+                case 1: return "NNE";
+                case 2: return "NE";
+                case 3: return "NEE";
+                case 4: return "E";
+                case 5: return "SEE";
+                case 6: return "SE";
+                case 7: return "SSE";
+                case 8: return "S";
+                case 9: return "SSW";
+                case 10: return "SW";
+                case 11: return "SWW";
+                case 12: return "W";
+                case 13: return "NWW";
+                case 14: return "NW";
+                case 15: return "NNW";
+                case 16: return "N";
+                default: return "";
+            };
+        }
+
         private class ClientData
         {
             public byte state; // 0 - undefined; 1 - listen (AIS); 2 - gpsgate; 3 - mapmytracks; 4 - APRS; 5 - FRS (GPSGate by TCP); 6 - listen (APRS)
@@ -1734,6 +1796,7 @@ namespace OruxPals
             public string ipp = "127.0.0.1:0";
         }
 
+        public string ServerName = "OruxPalsServer";
         public int ListenPort = 12015;
         public ushort maxClientAlive = 60;
         public byte maxHours = 48;

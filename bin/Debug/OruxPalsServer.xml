@@ -1,6 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <OruxPalsServerConfig>
-
+	<ServerName>NoName</ServerName>
 	<infoIP help="server IP address">127.0.0.1</infoIP>
 	<ListenPort help="listen tcp port" default="12015">12015</ListenPort>
 	<maxClientAlive help="close undefined (AIS) clients if they connected more XX minutes" default="60">60</maxClientAlive>

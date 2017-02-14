@@ -20,12 +20,16 @@
 	<body style="margin:0px;padding:0px;">
 		<div id="map" style="width:100%; height:100%"></div>
 		<div id="caption" style="position:absolute;left:44px;top:10px;"></div>
+		<div style="position:absolute;left:44px;top:72px;width:400px;">
+				Users: <a href="#" onclick="$('#userlist').toggle();return false;" style="font-size:12px;">.....</a> 
+				<span id="userlist" style="display:none;background:rgba(255,255,255,0.5);font-size:13px;"></span>			
+		</div>
 	</body>
 	<script>
 		var hashusr = "";
 		if(window.location.hash) hashusr = window.location.hash.substr(1).toUpperCase();
 	
-		var map = L.map('map', {center: [55.7, 37.7], zoom: 10, zoomControl: false, zoomsliderControl: true});
+		var map = L.map('map', {center: [55.7, 37.7], zoom: (hashusr == "" ? 10 : 13), zoomControl: false, zoomsliderControl: true});
 
 		var project = function (map, crs, latlng) { return crs.latLngToPoint(latlng, map.getZoom()); };
 
@@ -170,14 +174,17 @@
 		//	UPDATE CLIENT DATA
 		var UpdateData = function(user,dt,lat,lon,speed,heading,source,id,age,symbol,registered,comment,status)
 		{
-			var txt = '<div>';
-			txt += 'Last: '+dt+' UTC<br/>';
-			txt += 'Position: '+lat+' '+lon+'<br/>';
-			txt += 'Heading: '+heading+'&deg;<br/>';
-			txt += 'Speed: '+speed+' km/h<br/>';
-			txt += 'Source: '+source+' <br/>';
-			txt += 'Comment: <span style="color:navy;font-style:italic;">'+comment+'</span> <br/>';
-			txt += 'Status: <span style="color:maroon;font-style:italic;">'+status+'</span> <br/>';
+			if(marker_cache.length == 0)
+				map.setView([lat,lon]);
+		
+			var txt = '<div><table cellpadding="1" cellspacing="1" border="0" style="font-size:12px;">';
+			txt += '<tr><td>Source:</td><td> '+source+' </td></tr>';
+			txt += '<tr><td>Received:</td><td> '+dt+' UTC</td></tr>';
+			txt += '<tr><td>Position:</td><td> '+lat+' '+lon+'</td></tr>';
+			txt += '<tr><td>Speed:</td><td> '+speed+' km/h; '+(speed * 0.62137119).toFixed(1)+' mph; '+(speed / 1.852).toFixed(1)+' knots</td></tr>';
+			txt += '<tr><td>Heading:</td><td> '+heading+'&deg; '+HeadingToText(heading)+'</td></tr>';			
+			txt += '<tr><td>Comment:</td><td> <span style="color:navy;font-style:italic;">'+comment+'</span> </td></tr>';
+			txt += '<tr><td>Status:</td><td> <span style="color:maroon;font-style:italic;">'+status+'</span> </td></tr>';
 			txt += '</div>';			
 						
 			for(i=0;i<marker_cache.length;i++) marker_cache[i].marker.closePopup();
@@ -186,7 +193,7 @@
 				if(marker_cache[i].user == user)
 				{		
 					var mc = marker_cache[i];
-					txt = '<b>'+user+'</b> <sup><a href="/oruxpals/i/'+user+'" target="_blank" style="color:black;">'+id+'</a></sup> '+(registered ? "&reg;" : "")+'<hr style="font-size:0px;height:1px;border-top:solid 1px gray;"/><div style="width:200px;">' + txt;					
+					txt = '<b>'+user+'</b> <sup><a href="/oruxpals/i/'+user+'" target="_blank" style="color:black;">'+id+'</a></sup> '+(registered ? "&reg;" : "")+'<hr style="font-size:0px;height:1px;border-top:solid 1px gray;"/><div style="width:260px;">' + txt;					
 					
 					mc.id = id;
 					mc.age = age;
@@ -230,7 +237,7 @@
 			var symbolImage = symbolToImage(symbol);
 			
 			///// NEW ///////
-			txt = '<b>'+user+'</b> <sup><a href="/oruxpals/i/'+user+'" target="_blank" style="color:black;">'+id+'</a></sup> '+(registered ? "&reg;" : "")+'<hr style="font-size:0px;height:1px;border-top:solid 1px gray;"/><div style="width:200px;">' + txt;
+			txt = '<b>'+user+'</b> <sup><a href="/oruxpals/i/'+user+'" target="_blank" style="color:black;">'+id+'</a></sup> '+(registered ? "&reg;" : "")+'<hr style="font-size:0px;height:1px;border-top:solid 1px gray;"/><div style="width:260px;">' + txt;
 			var mc = {"user":user,"lat":lat,"lon":lon,"heading":heading,"speed":speed,"dt":dt,"id":id,"age":age,"symbol":symbol};
 			mc.color = colors[id % 10];
 			mc.follow = false;
@@ -268,17 +275,56 @@
 			var symbtable = '!"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~';						
 			var idd = symbtable.indexOf(symb);
 			if(idd < 0) idd = 14;
-			var itop =  Math.trunc(idd / 16) * 24;
+			var itop =  Math.floor(idd / 16) * 24;
 			var ileft = (idd % 16) * 24;
 			return 'background:url(v/images/'+prose+'.png) -'+ileft+'px -'+itop+'px no-repeat;';
+		}
+		
+		var HeadingToText = function(hdg)
+		{
+			var d = Math.round(hdg / 22.5);
+			switch (d)
+            {
+                case 0: return "N";
+                case 1: return "NNE";
+                case 2: return "NE";
+                case 3: return "NEE";
+                case 4: return "E";
+                case 5: return "SEE";
+                case 6: return "SE";
+                case 7: return "SSE";
+                case 8: return "S";
+                case 9: return "SSW";
+                case 10: return "SW";
+                case 11: return "SWW";
+                case 12: return "W";
+                case 13: return "NWW";
+                case 14: return "NW";
+                case 15: return "NNW";
+                case 16: return "N";
+                default: return "";
+            };
 		}
 		
 		var UpdateStatus = function()
 		{
 			var html = 'Locate user: <input type="text" style="border:solid 1px gray;" id="Locate" onkeyup="onLocate(event)" value="'+hashusr+'"></input> <small><a href="#" onclick="onFollow(event)">follow</a> <a href="#" onclick="onReset(event)">reset</a></small><br/>';
-			html += 'On Map: ' + marker_cache.length+', <a href="#" onclick="ClearPaths();return false;" title="Clear Path">Clear paths</a><br/>';		
-			html += '<a href="info">Server Information</a><br/>';
+			html += 'On Map: ' + marker_cache.length+', <a href="#" onclick="ClearPaths();return false;" title="Clear Paths">Clear paths</a><br/>';		
+			html += '<a href="info">Main View</a><br/>';
 			document.getElementById('caption').innerHTML = html;
+			
+			var ulist = '';
+			if(marker_cache.length > 0)
+				for(i=0;i<marker_cache.length;i++) 
+					ulist += '  <a href="#" onclick="Locate(\''+marker_cache[i].user+'\');return false;">' + marker_cache[i].user + '</a>';
+			document.getElementById('userlist').innerHTML = ulist;
+		}
+		
+		var Locate = function(u)
+		{
+			for(i=0;i<marker_cache.length;i++) 
+				if(marker_cache[i].user == u)					
+					map.setView([marker_cache[i].lat,marker_cache[i].lon]);
 		}
 		
 		var onLocate = function(e)
@@ -286,9 +332,7 @@
 			if(e.keyCode != 13) return;	
 			
 			var usr = document.getElementById('Locate').value.toString().toUpperCase();
-			for(i=0;i<marker_cache.length;i++) 
-					if(marker_cache[i].user == usr)					
-						map.setView([marker_cache[i].lat,marker_cache[i].lon]);
+			Locate(usr);
 		}
 		
 		var onFollow = function(e)
