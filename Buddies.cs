@@ -35,16 +35,21 @@ namespace OruxPals
 
         private byte maxHours = 48;
         private ushort greenMinutes = 60;
+        private int KMLObjectsRadius = 5;
 
         public delegate void BroadcastMethod(BroadCastInfo bdata);
         public BroadcastMethod onBroadcastAIS;
         public BroadcastMethod onBroadcastAPRS;
         public BroadcastMethod onBroadcastFRS;
 
-        public Buddies(byte maxHours, ushort greenMinutes)
+        public List<PreloadedObject> Objects = new List<PreloadedObject>();
+        public Hashtable ObjectsFiles = new Hashtable();
+
+        public Buddies(byte maxHours, ushort greenMinutes, int KMLObjectsRadius)
         {
             this.maxHours = maxHours;
             this.greenMinutes = greenMinutes;
+            this.KMLObjectsRadius = KMLObjectsRadius;
 
             (new Thread(ClearThread)).Start();
             (new Thread(BroadcastThread)).Start();
@@ -58,6 +63,181 @@ namespace OruxPals
         ~Buddies()
         {
             Dispose();
+        }
+
+        private void PreloadObjects()
+        {            
+            string[] fls = null;
+            try { fls = Directory.GetFiles(PreloadedObjects.GetObjectsDir(), "*.?ml", SearchOption.TopDirectoryOnly); } catch { };
+
+            if ((fls != null) && (fls.Length > 0))
+                foreach (string fl in fls)
+                {
+                    string shortFN = Path.GetFileName(fl);
+                    string fileExt = Path.GetExtension(fl).ToLower();
+                    string filePrefix = Transliteration.Front(shortFN.ToUpper().Substring(0, 2));
+                    int routePoints = 0;
+                    int staticPoints = 0;
+                    DateTime lastMDF = (new FileInfo(fl)).LastWriteTimeUtc;
+
+                    if ((ObjectsFiles[shortFN] == null) || (((PreloadedObjectsKml)ObjectsFiles[shortFN]).lastMDF != lastMDF))
+                    {      
+                        lock (Objects)
+                            if (Objects.Count > 0)
+                                for (int i = Objects.Count - 1; i >= 0; i--)
+                                    if (Objects[i].fromFile == shortFN)
+                                        Objects.RemoveAt(i);
+                        
+                        PreloadedObjects objs = null;
+                        if (fileExt == ".xml")
+                        {
+                            try 
+                            { 
+                                objs = PreloadedObjects.LoadFile(fl); 
+                                if ((objs != null) && (objs.objects != null))
+                                    foreach (PreloadedObject po in objs.objects)
+                                        { if (po.radius < 0) staticPoints++; else routePoints++; };
+                            }
+                            catch { };
+                        };
+                        if (fileExt == ".kml")
+                        {
+                            try
+                            {
+                                XmlDocument xd = new XmlDocument();
+                                using (XmlTextReader tr = new XmlTextReader(fl))
+                                {
+                                    tr.Namespaces = false;
+                                    xd.Load(tr);
+                                };
+                                string defSymbol = "\\C";
+                                XmlNode NodeSymbol = xd.SelectSingleNode("/kml/symbol");
+                                if (NodeSymbol != null) defSymbol = NodeSymbol.ChildNodes[0].Value;
+                                XmlNodeList nl = xd.GetElementsByTagName("Placemark");
+                                List<PreloadedObject> fromKML = new List<PreloadedObject>();
+                                routePoints = nl.Count;
+                                if(nl.Count > 0)
+                                    for (int i = 0; i < nl.Count; i++)
+                                    {
+                                        try
+                                        {
+                                            string pName = System.Security.SecurityElement.Escape(Transliteration.Front(nl[i].SelectSingleNode("name").ChildNodes[0].Value));
+                                            pName = Regex.Replace(pName, "[\r\n\\(\\)\\[\\]\\{\\}\\^\\$\\&]+", "");
+                                            string symbol = defSymbol;
+                                            if (nl[i].SelectSingleNode("symbol") != null)
+                                                symbol = nl[i].SelectSingleNode("symbol").ChildNodes[0].Value.Trim();
+                                            if (nl[i].SelectSingleNode("Point/coordinates") != null)
+                                            {
+                                                string pPos = nl[i].SelectSingleNode("Point/coordinates").ChildNodes[0].Value.Trim();
+                                                string[] xyz = pPos.Split(new char[] { ',' }, 3);
+                                                PreloadedObject po = new PreloadedObject(
+                                                    String.Format("R{0:000}-{1}", i + 1, filePrefix), symbol, 
+                                                    double.Parse(xyz[1], System.Globalization.CultureInfo.InvariantCulture), 
+                                                    double.Parse(xyz[0], System.Globalization.CultureInfo.InvariantCulture),
+                                                    KMLObjectsRadius, 
+                                                    pName, 
+                                                    shortFN);
+                                                fromKML.Add(po);
+                                            };
+                                        }
+                                        catch { };
+                                    };
+                                if (fromKML.Count > 0)
+                                {
+                                    objs = new PreloadedObjects();
+                                    objs.objects = fromKML.ToArray();
+                                };
+                            }
+                            catch { };
+                        };
+                        if ((objs != null) && (objs.objects != null))
+                        {
+                            foreach (PreloadedObject po in objs.objects)
+                                po.fromFile = shortFN;
+                            lock (Objects)
+                                Objects.AddRange(objs.objects);
+                        };
+                    };
+                    ObjectsFiles[shortFN] = new PreloadedObjectsKml(shortFN, lastMDF, routePoints, staticPoints);
+                };
+
+            List<Buddie> toUp = new List<Buddie>();
+            lock (Objects)
+                foreach (PreloadedObject po in Objects)
+                    if (po.radius < 0)
+                    {
+                        Buddie b = new Buddie(5, po.name, po.lat, po.lon, 0, 0);
+                        b.IconSymbol = po.symbol;
+                        b.Comment = po.comment;
+                        toUp.Add(b);
+                    };
+            if (toUp.Count > 0)
+                foreach (Buddie b in toUp)
+                    Update(b);
+        }
+
+        public PreloadedObject[] GetNearest(double lat, double lon)
+        {
+            List<PreloadedObject> objs = new List<PreloadedObject>();
+            PreloadedObject[] gfl;
+            lock (Objects) gfl = Objects.ToArray();
+            foreach (PreloadedObject obj in gfl)
+            {
+                if(obj.radius < 0) continue;
+                if(GetLengthAB(lat,lon,obj.lat,obj.lon) < (obj.radius * 1000))
+                    objs.Add(obj);
+            };
+            return objs.ToArray();
+        }
+
+        /// <param name="StartLat">A lat</param>
+        /// <param name="StartLong">A lon</param>
+        /// <param name="EndLat">B lat</param>
+        /// <param name="EndLong">B lon</param>
+        /// <param name="radians">Radians or Degrees</param>
+        /// <returns>length in meters</returns>
+        private static float GetLengthAB(double alat, double alon, double blat, double blon)
+        {
+            double D2R = Math.PI / 180;
+            double dDistance = Double.MinValue;
+            double dLat1InRad = alat * D2R;
+            double dLong1InRad = alon * D2R;
+            double dLat2InRad = blat * D2R;
+            double dLong2InRad = blon * D2R;
+
+            double dLongitude = dLong2InRad - dLong1InRad;
+            double dLatitude = dLat2InRad - dLat1InRad;
+
+            double a = Math.Pow(Math.Sin(dLatitude / 2.0), 2.0) +
+                       Math.Cos(dLat1InRad) * Math.Cos(dLat2InRad) *
+                       Math.Pow(Math.Sin(dLongitude / 2.0), 2.0);
+
+            double c = 2.0 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1.0 - a));
+
+            const double kEarthRadiusKms = 6378137.0000;
+            dDistance = kEarthRadiusKms * c;
+
+            return (float)Math.Round(dDistance);
+        }
+
+        public string GetStaticObjectsInfo()
+        {
+            if (ObjectsFiles.Count == 0) return "No Any Objects Loaded";
+            int ttlf = 0;
+            int ttls = 0;
+            int ttlr = 0;
+            string txt = "";
+            lock(ObjectsFiles)
+                foreach (string key in ObjectsFiles.Keys)
+                {
+                    ttlf++;
+                    PreloadedObjectsKml fi = (PreloadedObjectsKml)ObjectsFiles[key];
+                    ttlr += fi.routePoints;
+                    ttls += fi.staticPoints;
+                    txt += String.Format(" &nbsp; &nbsp; \"{0}\" - {1} route, {2} static objects<br/>", fi.shortFN, fi.routePoints, fi.staticPoints);
+                };
+            txt += String.Format("<span style=\"color:green;\"> &nbsp; Total: {0} files, {1} route, {2} static objects<span><br/>", ttlf, ttlr, ttls);
+            return txt;
         }
 
         public void Update(Buddie buddie)
@@ -78,19 +258,22 @@ namespace OruxPals
                     buddie.ID = ++Buddie._id;                
                 buddies.Add(buddie);                
             };
-
-            buddie.SetAIS();                        
-            lock (broadcastAIS) 
-                broadcastAIS.Add(new BroadCastInfo(buddie.name, buddie.AISNMEA));
-
+            
             buddie.SetAPRS();
             lock (broadcastAPRS)
                 broadcastAPRS.Add(new BroadCastInfo(buddie.name, buddie.APRSData));
 
-            buddie.SetFRS();
-            lock (broadcastFRSS)
-                broadcastFRSS.Add(new BroadCastInfo(buddie.name, buddie.FRPOSData));
+            // No tx static & route objects
+            if ((buddie.source != 5) && (buddie.source != 6))
+            {
+                buddie.SetAIS();
+                lock (broadcastAIS)
+                    broadcastAIS.Add(new BroadCastInfo(buddie.name, buddie.AISNMEA));
 
+                buddie.SetFRS();
+                lock (broadcastFRSS)
+                    broadcastFRSS.Add(new BroadCastInfo(buddie.name, buddie.FRPOSData));
+            };
         }
 
         public Buddie[] Current
@@ -170,9 +353,14 @@ namespace OruxPals
 
         private void ClearThread()
         {
+            try { PreloadObjects(); } catch { };
+
             byte counter = 0;
+            byte filectr = 0;
             while (keepAlive)
             {
+                if (filectr++ == 150) //each 2.5 min
+                    try { filectr = 0; PreloadObjects(); } catch { };
                 if (++counter == 15)
                 {
                     lock (buddies)
@@ -481,6 +669,101 @@ namespace OruxPals
             
             copyTo.ID = copyFrom.ID;
             copyTo.Status = copyFrom.Status;
+        }
+    }
+
+    [Serializable]
+    public class PreloadedObject
+    {
+        [XmlAttribute]
+        public string name;
+        [XmlAttribute]
+        public string symbol = "\\N";
+        [XmlAttribute]
+        public double lat;
+        [XmlAttribute]
+        public double lon;
+        [XmlAttribute]
+        public double radius = 5; // -1 show always
+        [XmlText]
+        public string comment = "";
+        [XmlIgnore]
+        public string fromFile = "";
+
+        public PreloadedObject() { }
+        public PreloadedObject(string name, string symbol, double lat, double lon, double radius, string comment, string fromFile)
+        {
+            this.name = name;
+            this.symbol = symbol;
+            this.lat = lat;
+            this.lon = lon;
+            this.radius = radius;
+            this.comment = comment;
+            this.fromFile = fromFile;
+        }
+
+        public override string ToString()
+        {
+            return
+                name + ">APRS,TCPIP*:=" + // Position without timestamp + APRS message
+                Math.Truncate(lat).ToString("00") + ((lat - Math.Truncate(lat)) * 60).ToString("00.00").Replace(",", ".") +
+                (lat > 0 ? "N" : "S") +
+                symbol[0] +
+                Math.Truncate(lon).ToString("000") + ((lon - Math.Truncate(lon)) * 60).ToString("00.00").Replace(",", ".") +
+                (lon > 0 ? "E" : "W") +
+                symbol[1] + " " + 
+                comment +
+                "\r\n";
+        }
+    }
+
+    public class PreloadedObjectsKml
+    {
+        public string shortFN;
+        public DateTime lastMDF;
+        public int routePoints = 0;
+        public int staticPoints = 0;
+        
+        public PreloadedObjectsKml() { }
+
+        public PreloadedObjectsKml(string shortFN, DateTime lastMDF)
+        {
+            this.shortFN = shortFN;
+            this.lastMDF = lastMDF;
+        }
+
+        public PreloadedObjectsKml(string shortFN, DateTime lastMDF, int pointsCount, int staticPoints)
+        {
+            this.shortFN = shortFN;
+            this.lastMDF = lastMDF;
+            this.routePoints = pointsCount;
+            this.staticPoints = staticPoints;
+        }
+
+    }
+
+    [Serializable]
+    public class PreloadedObjects
+    {
+        [XmlElement("obj")]
+        public PreloadedObject[] objects;
+
+        public static PreloadedObjects LoadFile(string file)
+        {
+            System.Xml.Serialization.XmlSerializer xs = new System.Xml.Serialization.XmlSerializer(typeof(PreloadedObjects));
+            System.IO.StreamReader reader = System.IO.File.OpenText(file);
+            PreloadedObjects c = (PreloadedObjects)xs.Deserialize(reader);
+            reader.Close();
+            return c;
+        }
+
+        public static string GetObjectsDir()
+        {
+            string fname = System.Reflection.Assembly.GetExecutingAssembly().GetName().CodeBase.ToString();
+            fname = fname.Replace("file:///", "");
+            fname = fname.Replace("/", @"\");
+            fname = fname.Substring(0, fname.LastIndexOf(@"\") + 1);
+            return fname + @"\OBJECTS\";
         }
     }
 

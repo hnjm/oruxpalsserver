@@ -19,7 +19,7 @@ namespace OruxPals
     {
         public static string serviceName { get { return "OruxPalsServer"; } }
         public string ServerName = "OruxPalsServer";
-        public static string softver { get { return "OruxPalsServer v0.7.3a"; } }
+        public static string softver { get { return "OruxPalsServer v0.9a"; } }
 
         private static bool _NoSendToFRS = true; // GPSGate Tracker didn't support $FRPOS
 
@@ -43,6 +43,7 @@ namespace OruxPals
         private ushort MaxClientAlive = 60;
         private byte maxHours = 48;
         private ushort greenMinutes = 60;
+        private int KMLObjectsRadius = 5;
         private string urlPath = "/oruxpals/";
         private string adminName = "admin";
         private bool sendBack = false;
@@ -56,6 +57,7 @@ namespace OruxPals
             MaxClientAlive = config.maxClientAlive;
             maxHours = config.maxHours;
             greenMinutes = config.greenMinutes;
+            KMLObjectsRadius = config.KMLObjectsRadius;
             if (config.urlPath.Length != 8) throw new Exception("urlPath must be 8 symbols length");
             adminName = config.adminName;
             sendBack = config.sendBack == "yes";
@@ -80,7 +82,7 @@ namespace OruxPals
             if (isRunning) return;
             started = DateTime.UtcNow;
             Console.Write("Starting {0} at {1}:{2}... ", softver, infoIP, ListenPort);
-            BUDS = new Buddies(maxHours, greenMinutes);
+            BUDS = new Buddies(maxHours, greenMinutes, KMLObjectsRadius);
             BUDS.onBroadcastAIS = new Buddies.BroadcastMethod(BroadcastAIS);
             BUDS.onBroadcastAPRS = new Buddies.BroadcastMethod(BroadcastAPRS);
             BUDS.onBroadcastFRS = new Buddies.BroadcastMethod(BroadcastFRS);
@@ -290,7 +292,9 @@ namespace OruxPals
 
             Buddie[] bup = BUDS.Current;
             List<byte[]> blist = new List<byte[]>();
-            foreach (Buddie b in bup) blist.Add(b.AISNMEA);
+            foreach (Buddie b in bup) 
+                if((b.source != 5) && (b.source != 6)) // no tx static & route objects
+                    blist.Add(b.AISNMEA);
             foreach (byte[] ba in blist)
                 try { cd.stream.Write(ba, 0, ba.Length); } catch { };
         }
@@ -458,7 +462,21 @@ namespace OruxPals
                };
 
                if ((b.PositionIsValid)) // if Position Packet send to All (AIS + APRS + Web)
+               {
                    OnNewData(b);
+                   if ((BUDS != null) && (DateTime.UtcNow.Subtract(cd.lastNearest).TotalSeconds > 45)) // each 45 sec.
+                   {
+                       PreloadedObject[] nearest = BUDS.GetNearest(b.lat, b.lon);
+                       if((nearest != null) && (nearest.Length > 0))
+                           foreach (PreloadedObject near in nearest)
+                           {
+                               byte[] bts = Encoding.ASCII.GetBytes(near.ToString());
+                               try { cd.stream.Write(bts, 0, bts.Length); }
+                               catch { };
+                           };
+                       cd.lastNearest = DateTime.UtcNow;
+                   };
+               }
                else // if not Position Packet send as is only to all APRS clients
                    Broadcast(b.APRSData, b.name, false, true, false);
             };
@@ -715,6 +733,8 @@ namespace OruxPals
                                     List<byte[]> blist = new List<byte[]>();
                                     foreach (Buddie b in bup)
                                     {
+                                        if ((b.source != 5) && (b.source != 6)) // no tx static & route objects
+                                            continue;
                                         if (sendBack)
                                             blist.Add(b.FRPOSData);
                                         else if (cd.user != b.name)
@@ -876,6 +896,8 @@ namespace OruxPals
                         if (b.source == 2) src = "OruxMaps MapMyTracks";
                         if (b.source == 3) src = "APRS Client";
                         if (b.source == 4) src = "FRS (GPSGate Tracker)";
+                        if (b.source == 5) src = "Static Object";
+                        if (b.source == 6) src = "Route Object";
                         
                         string symb = b.IconSymbol;
                         string prose = "primary";
@@ -930,9 +952,11 @@ namespace OruxPals
             if (BUDS != null)
             {
                 Buddie[] all = BUDS.Current;
-                bc = all.Length;                
                 foreach (Buddie b in all)
                 {
+                    if (b.source == 5) continue; // static object
+                    if (b.source == 6) continue; // route object
+                    bc++;
                     bool isreg = false;
                     if(regUsers != null)
                         foreach (OruxPalsServerConfig.RegUser u in regUsers)
@@ -984,12 +1008,13 @@ namespace OruxPals
                                 if ((u.forward != null) && (u.forward.Contains(svc.name))) uc++;
                         fsvc += "&nbsp; &nbsp; " + String.Format("{0} as {1} with {2} clients\r\n<br/>", svc.name, svc.type, uc);
                     };
+            if ((BUDS != null) && (addit == "")) addit = "<span style=\"color:green;\">Static Objects Data:</span><br/>" + BUDS.GetStaticObjectsInfo();
             HTTPClientSendResponse(cd.client, String.Format(                
                 "<span style=\"color:red;\">Server: {0}</span>\r\n<br/>" +
                 "<span style=\"color:maroon;\">Name: " + ServerName + "</span>\r\n<br/>" +
                 "Port: {4}\r\n<br/>" +
-                "Started {1} UTC\r\n<br/>" +                
-                "<a href=\"{5}info\">Main View</a> | <a href=\"{5}view\">Map View</a> | <a href=\"{5}v/resources\">Resources</a>\r\n<hr/>" +
+                "Started {1} UTC\r\n<br/>" +
+                "<a href=\"{5}info\">Main View</a> | <a href=\"{5}view\">Map View</a> | <a href=\"{5}v/resources\">Resources</a> | <a href=\"{5}v/objects\">Objects</a>\r\n<hr/>" +
                 "<div style=\"color:blue;\">Clients AIS/APRS(R)/FRS: {2} / {7} ({10}) / {8}\r\n</div><hr/>" +
                 "<div style=\"color:green;\">Buddies Online/Registered/Unregistered: {3}\r\n<br/>" +
                 "{6}\r\n</div><hr/>" +
@@ -1040,6 +1065,8 @@ namespace OruxPals
                         if (b.source == 2) src = "OruxMaps MapMyTracks";
                         if (b.source == 3) src = "APRS Client";
                         if (b.source == 4) src = "FRS (GPSGate Tracker)";
+                        if (b.source == 5) src = "Static Object";
+                        if (b.source == 6) src = "Route Object";
                         cdata += (cdata.Length > 0 ? "," : "") + "{" + String.Format(
                             "id:{7},user:'{0}',received:'{1}',lat:{2},lon:{3},speed:{4},hdg:{5},source:'{6}',age:{8},symbol:'{9}',r:{10},comment:'{11}',status:'{12}'",
                             new object[] { 
@@ -1061,11 +1088,11 @@ namespace OruxPals
             else
             {
                 if (ptf == "")
-                    HTTPClientSendFile(cd.client, "map.html");
+                    HTTPClientSendFile(cd.client, "map.html", "MAP");
                 else if (ptf == "resources") // send 
                 {
                     string ffn = OruxPalsServerConfig.GetCurrentDir() + @"\MAP\resources\";
-                    string[] flist = Directory.GetFiles(ffn,"*.*",SearchOption.TopDirectoryOnly);
+                    string[] flist = Directory.GetFiles(ffn, "*.*", SearchOption.TopDirectoryOnly);
                     string txtout = "<span style=\"color:red;\">Server: " + OruxPalsServer.softver + "</span><br/><span style=\"color:maroon;\">Name: " + ServerName + "</span>\r\n<br/>Resources:\r\n<br/>";
                     txtout += "- <a href=\"../info\">&nbsp;..&nbsp;<a/><br/>";
                     if (flist != null)
@@ -1076,8 +1103,24 @@ namespace OruxPals
                         };
                     HTTPClientSendResponse(cd.client, txtout);
                 }
+                else if (ptf == "objects") // send 
+                {
+                    string ffn = OruxPalsServerConfig.GetCurrentDir() + @"\OBJECTS\";
+                    string[] flist = Directory.GetFiles(ffn, "*.*", SearchOption.TopDirectoryOnly);
+                    string txtout = "<span style=\"color:red;\">Server: " + OruxPalsServer.softver + "</span><br/><span style=\"color:maroon;\">Name: " + ServerName + "</span>\r\n<br/>Objects:\r\n<br/>";
+                    txtout += "- <a href=\"../info\">&nbsp;..&nbsp;<a/><br/>";
+                    if (flist != null)
+                        foreach (string f in flist)
+                        {
+                            FileInfo fi = new FileInfo(f);
+                            txtout += "- <a href=\"objects/" + System.IO.Path.GetFileName(f) + "\">" + System.IO.Path.GetFileName(f) + "<a/> " + String.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:0.00} MB", fi.Length / 1024.0 / 1024.0) + "\r\n<br/>";
+                        };
+                    HTTPClientSendResponse(cd.client, txtout);
+                }
+                else if (ptf.Contains("objects/"))
+                    HTTPClientSendFile(cd.client, ptf.Substring(8), "OBJECTS");
                 else
-                    HTTPClientSendFile(cd.client, ptf.Replace("..","00"));
+                    HTTPClientSendFile(cd.client, ptf, "MAP");
             };
         }
 
@@ -1629,9 +1672,9 @@ namespace OruxPals
             Client.Close();
         }
 
-        private static void HTTPClientSendFile(TcpClient Client, string fileName)
+        private static void HTTPClientSendFile(TcpClient Client, string fileName, string subdir)
         {
-            string ffn = OruxPalsServerConfig.GetCurrentDir() + @"\MAP\" + fileName;
+            string ffn = OruxPalsServerConfig.GetCurrentDir() + @"\" + subdir + @"\" + fileName.Replace("..", "00").Replace("%20"," ");
             if (!File.Exists(ffn))
             {
                 HTTPClientSendError(Client, 404);
@@ -1643,6 +1686,9 @@ namespace OruxPals
             string ext = Path.GetExtension(ffn).ToLower();
             if (ext == ".css") ctype = "";// "text/css; charset=windows-1251";
             if (ext == ".js") ctype = "text/javascript; charset=windows-1251";
+            if (ext == ".png") ctype = "image/png";
+            if ((ext == ".jpg") || (ext == ".jpeg")) ctype = "image/jpeg";
+            if ((ext == ".xml") || (ext == ".kml")) ctype = "text/xml; charset=utf-8";
             if ((ext == ".apk") || (ext == ".exe") || (ext == ".rar") || (ext == ".bin")) ctype = "application/octet-stream";
 
             string Headers =
@@ -1742,6 +1788,7 @@ namespace OruxPals
             }
 
             public string user = "unknown";
+            public DateTime lastNearest = DateTime.MinValue;
         }
     }
 
@@ -1801,6 +1848,7 @@ namespace OruxPals
         public ushort maxClientAlive = 60;
         public byte maxHours = 48;
         public ushort greenMinutes = 60;
+        public int KMLObjectsRadius = 5;
         public string urlPath = "oruxpals";
         public string adminName = "ADMIN";
         public string sendBack = "no";

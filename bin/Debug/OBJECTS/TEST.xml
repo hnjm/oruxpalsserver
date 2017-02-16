@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<PreloadedObjects>
+	<!-- show always -->
+	<obj name="MAK-UB" symbol="\R" lat="55.548532" lon="37.543301" radius="-1">McDonalds Uzhnoe Butovo</obj>	
+	<obj name="KFC-UB" symbol="\R" lat="55.543382" lon="37.531811" radius="-1">KFC Uzhnoe Butovo</obj>
+	<obj name="BK-UB" symbol="\R" lat="55.551413" lon="37.528101" radius="-1">Burger King Uzhnoe Butovo</obj>	
+	<obj name="BK-MKLP" symbol="\R" lat="55.57281" lon="37.67396" radius="-1">BK, MKAD, Lipeskaya</obj>
+	<obj name="BK-MKVA" symbol="\R" lat="55.577517" lon="37.59718" radius="-1">BK, MKAD, Varshavka</obj>		
+	
+	<!-- Show Route -->
+	
+	<obj name="KFC-KS" symbol="\R" lat="56.05578" lon="37.53104" radius="10">KFC, TC Kashtanka</obj>
+	<obj name="MAK-IK" symbol="\R" lat="56.1477" lon="37.49104" radius="10">McDonalds, Iksha</obj>
+	<obj name="MAK-YAHR" symbol="\R" lat="56.2799218" lon="37.5020569" radius="10">McDonalds, Yahroma</obj>	
+	
+	<obj name="KFC-M4" symbol="\R" lat="55.515303" lon="37.710464" radius="7">KFC, M4 DON</obj>
+	<obj name="MAK-KFC" symbol="\R" lat="55.4451605" lon="37.618088" radius="7">McDonalds and KFC, M2 KRYM</obj>
+	<!--
+		radius in km
+		if(radius == -1) object will show always (on web map too)
+		if(radius > 0) object information will sends to APRS client if client in object raidius range
+	-->
+</PreloadedObjects>

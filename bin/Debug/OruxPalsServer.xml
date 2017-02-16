@@ -81,4 +81,9 @@
 		<service name="O" type="o" forward="no">http://updates.opengps.net/index.php?key=APIKEY</service>		
 		
 	</forwardServices>
+	<!--
+		You can customize symbol of all objects for each kml file: <kml><symbol>/0</symbol> ... </kml>
+		or for each object in each file: <Placemark><symbol>/0</symbol> ... </Placemark>
+	-->
+	<KMLObjectsRadius help="Show KML objects to APRS client within radius, km (-1 - show always)">10</KMLObjectsRadius>
 </OruxPalsServerConfig>
