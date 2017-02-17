@@ -19,7 +19,7 @@ namespace OruxPals
     {
         public static string serviceName { get { return "OruxPalsServer"; } }
         public string ServerName = "OruxPalsServer";
-        public static string softver { get { return "OruxPalsServer v0.9a"; } }
+        public static string softver { get { return "OruxPalsServer v0.10a"; } }
 
         private static bool _NoSendToFRS = true; // GPSGate Tracker didn't support $FRPOS
 
@@ -44,20 +44,39 @@ namespace OruxPals
         private byte maxHours = 48;
         private ushort greenMinutes = 60;
         private int KMLObjectsRadius = 5;
+        private int KMLObjectsLimit = 50;
         private string urlPath = "/oruxpals/";
         private string adminName = "admin";
         private bool sendBack = false;
         private bool callsignToUser = true;
         private string infoIP = "127.0.0.1";
 
+        public static void InitCPU()
+        {
+            string path = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+            if (IntPtr.Size == 8) // or: if(Environment.Is64BitProcess) // .NET 4.0
+            {
+                File.Copy(Path.Combine(path, "x64") + @"\System.Data.SQLite.dll", path + @"\System.Data.SQLite.dll", true);
+                File.Copy(Path.Combine(path, "x64") + @"\SQLite.Interop.dll", path + @"\SQLite.Interop.dll", true);
+            }
+            else
+            {
+                File.Copy(Path.Combine(path, "x86") + @"\System.Data.SQLite.dll", path + @"\System.Data.SQLite.dll", true);
+                File.Copy(Path.Combine(path, "x86") + @"\SQLite.Interop.dll", path + @"\SQLite.Interop.dll", true);
+            };
+        }
+
         public OruxPalsServer() 
         {
+            //InitCPU();
+                       
             OruxPalsServerConfig config = OruxPalsServerConfig.LoadFile("OruxPalsServer.xml");
             ListenPort = config.ListenPort;
             MaxClientAlive = config.maxClientAlive;
             maxHours = config.maxHours;
             greenMinutes = config.greenMinutes;
             KMLObjectsRadius = config.KMLObjectsRadius;
+            KMLObjectsLimit = config.KMLObjectsLimit;
             if (config.urlPath.Length != 8) throw new Exception("urlPath must be 8 symbols length");
             adminName = config.adminName;
             sendBack = config.sendBack == "yes";
@@ -82,7 +101,7 @@ namespace OruxPals
             if (isRunning) return;
             started = DateTime.UtcNow;
             Console.Write("Starting {0} at {1}:{2}... ", softver, infoIP, ListenPort);
-            BUDS = new Buddies(maxHours, greenMinutes, KMLObjectsRadius);
+            BUDS = new Buddies(maxHours, greenMinutes, KMLObjectsRadius, KMLObjectsLimit);
             BUDS.onBroadcastAIS = new Buddies.BroadcastMethod(BroadcastAIS);
             BUDS.onBroadcastAPRS = new Buddies.BroadcastMethod(BroadcastAPRS);
             BUDS.onBroadcastFRS = new Buddies.BroadcastMethod(BroadcastFRS);
@@ -106,7 +125,7 @@ namespace OruxPals
             Console.WriteLine("OK");
             Console.WriteLine("Info at: http://{2}:{0}{1}info",ListenPort, urlPath, infoIP);
             Console.WriteLine("Admin at: http://{3}:{0}{1}${2}", ListenPort, urlPath, adminName, infoIP);
-            (new Thread(PingThread)).Start(); // ping clients thread
+            (new Thread(PingNearestThread)).Start(); // ping clients thread
             while (isRunning)
             {
                 try
@@ -119,15 +138,22 @@ namespace OruxPals
             Console.WriteLine("OK");
         }
 
-        private void PingThread()
+        private void PingNearestThread()
         {
             ushort pingInterval = 0;
+            ushort nrstInterval = 0;
             while (isRunning)
             {
                 if (pingInterval++ == 300) // 30 sec
                 {
                     pingInterval = 0;
                     try { PingAlive(); }
+                    catch { };
+                };
+                if (nrstInterval++ == 450) // 45 sec
+                {
+                    nrstInterval = 0;
+                    try { SendNearest(); }
                     catch { };
                 };
                 Thread.Sleep(100);
@@ -275,7 +301,7 @@ namespace OruxPals
                         rxText = "";
                     };
                 }
-                catch (Exception ex) 
+                catch
                 { };
 
                 Thread.Sleep(100);
@@ -293,7 +319,7 @@ namespace OruxPals
             Buddie[] bup = BUDS.Current;
             List<byte[]> blist = new List<byte[]>();
             foreach (Buddie b in bup) 
-                if((b.source != 5) && (b.source != 6)) // no tx static & route objects
+                if((b.source != 5) && (b.source != 6)) // no tx everytime & static objects
                     blist.Add(b.AISNMEA);
             foreach (byte[] ba in blist)
                 try { cd.stream.Write(ba, 0, ba.Length); } catch { };
@@ -464,22 +490,37 @@ namespace OruxPals
                if ((b.PositionIsValid)) // if Position Packet send to All (AIS + APRS + Web)
                {
                    OnNewData(b);
-                   if ((BUDS != null) && (DateTime.UtcNow.Subtract(cd.lastNearest).TotalSeconds > 45)) // each 45 sec.
-                   {
-                       PreloadedObject[] nearest = BUDS.GetNearest(b.lat, b.lon);
-                       if((nearest != null) && (nearest.Length > 0))
-                           foreach (PreloadedObject near in nearest)
-                           {
-                               byte[] bts = Encoding.ASCII.GetBytes(near.ToString());
-                               try { cd.stream.Write(bts, 0, bts.Length); }
-                               catch { };
-                           };
-                       cd.lastNearest = DateTime.UtcNow;
-                   };
+                   cd.lastFixYX = new double[3] { 1, b.lat, b.lon };                   
                }
                else // if not Position Packet send as is only to all APRS clients
                    Broadcast(b.APRSData, b.name, false, true, false);
             };
+        }
+
+        private void SendNearest()
+        {
+            List<ClientData> cdl = new List<ClientData>();
+
+            lock (clientList)
+                foreach (ClientData ci in clientList.Values)
+                    if (ci.state == 4)
+                        cdl.Add(ci);
+
+            if (cdl.Count > 0)
+                if (BUDS != null)
+                    foreach (ClientData ci in cdl)
+                        if ((ci.lastFixYX != null) && (ci.lastFixYX.Length == 3) && ((int)ci.lastFixYX[0] == 1))
+                        {
+                            PreloadedObject[] nearest = BUDS.GetNearest(ci.lastFixYX[1], ci.lastFixYX[2]);
+                            if ((nearest != null) && (nearest.Length > 0))
+                                foreach (PreloadedObject near in nearest)
+                                {
+                                    byte[] bts = Encoding.ASCII.GetBytes(near.ToString());
+                                    try { ci.stream.Write(bts, 0, bts.Length); }
+                                    catch { };
+                                };
+                            ci.lastFixYX = new double[] { 0, 0, 0 };
+                        };
         }
 
         private bool OnAPRSinternalMessage(ClientData cd, Buddie buddie, string line)
@@ -733,7 +774,7 @@ namespace OruxPals
                                     List<byte[]> blist = new List<byte[]>();
                                     foreach (Buddie b in bup)
                                     {
-                                        if ((b.source != 5) && (b.source != 6)) // no tx static & route objects
+                                        if ((b.source != 5) && (b.source != 6)) // no tx everytime & static objects
                                             continue;
                                         if (sendBack)
                                             blist.Add(b.FRPOSData);
@@ -896,8 +937,8 @@ namespace OruxPals
                         if (b.source == 2) src = "OruxMaps MapMyTracks";
                         if (b.source == 3) src = "APRS Client";
                         if (b.source == 4) src = "FRS (GPSGate Tracker)";
-                        if (b.source == 5) src = "Static Object";
-                        if (b.source == 6) src = "Route Object";
+                        if (b.source == 5) src = "Everytime Object";
+                        if (b.source == 6) src = "Static Object";
                         
                         string symb = b.IconSymbol;
                         string prose = "primary";
@@ -954,8 +995,8 @@ namespace OruxPals
                 Buddie[] all = BUDS.Current;
                 foreach (Buddie b in all)
                 {
-                    if (b.source == 5) continue; // static object
-                    if (b.source == 6) continue; // route object
+                    if (b.source == 5) continue; // Everytime object
+                    if (b.source == 6) continue; // Static object
                     bc++;
                     bool isreg = false;
                     if(regUsers != null)
@@ -1065,8 +1106,8 @@ namespace OruxPals
                         if (b.source == 2) src = "OruxMaps MapMyTracks";
                         if (b.source == 3) src = "APRS Client";
                         if (b.source == 4) src = "FRS (GPSGate Tracker)";
-                        if (b.source == 5) src = "Static Object";
-                        if (b.source == 6) src = "Route Object";
+                        if (b.source == 5) src = "Everytime Object";
+                        if (b.source == 6) src = "Static Object";
                         cdata += (cdata.Length > 0 ? "," : "") + "{" + String.Format(
                             "id:{7},user:'{0}',received:'{1}',lat:{2},lon:{3},speed:{4},hdg:{5},source:'{6}',age:{8},symbol:'{9}',r:{10},comment:'{11}',status:'{12}'",
                             new object[] { 
@@ -1084,6 +1125,55 @@ namespace OruxPals
                 };
                 cdata = "[" + cdata + "]";
                 HTTPClientSendResponse(cd.client, cdata);
+            }
+            else if (prf == "near")
+            {
+                Match m = Regex.Match(ptf, @"^([\d.]+)/([\d.]+)");
+                if (m.Success)
+                {
+                    double lat = 0;
+                    double lon = 0;
+                    try
+                    {
+                        lat = double.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+                        lon = double.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
+                    }
+                    catch
+                    {
+                        HTTPClientSendError(cd.client, 417);
+                    };
+                    string cdata = "";
+                    if (BUDS != null)
+                    {
+                        PreloadedObject[] no = BUDS.GetNearest(lat, lon);
+                        if((no != null) && (no.Length > 0))
+                        foreach(PreloadedObject po in no)
+                        {
+                            string src = "Unknown";
+                            if (po.radius < 0) 
+                                src = "Everytime Object";
+                            else
+                                src = "Static Object";
+                            cdata += (cdata.Length > 0 ? "," : "") + "{" + String.Format(
+                                "id:{7},user:'{0}',received:'{1}',lat:{2},lon:{3},speed:{4},hdg:{5},source:'{6}',age:{8},symbol:'{9}',r:{10},comment:'{11}',status:'{12}'",
+                                new object[] { 
+                                po.name, DateTime.UtcNow.ToString(), 
+                                po.lat.ToString("0.00000000", System.Globalization.CultureInfo.InvariantCulture), 
+                                po.lon.ToString("0.00000000", System.Globalization.CultureInfo.InvariantCulture), 
+                                0, 0, 
+                                src, -1, 
+                                0, 
+                                po.symbol.Replace(@"\", @"\\").Replace(@"'", @"\'"), 
+                                0, 
+                                System.Security.SecurityElement.Escape(po.comment), 
+                                "" }) + "}";
+                        };
+                    };
+                    cdata = "[" + cdata + "]";
+                    HTTPClientSendResponse(cd.client, cdata);
+                }
+                else
+                    HTTPClientSendError(cd.client, 417);
             }
             else
             {
@@ -1788,7 +1878,7 @@ namespace OruxPals
             }
 
             public string user = "unknown";
-            public DateTime lastNearest = DateTime.MinValue;
+            public double[] lastFixYX = new double[] { 0, 0, 0 };
         }
     }
 
@@ -1849,6 +1939,7 @@ namespace OruxPals
         public byte maxHours = 48;
         public ushort greenMinutes = 60;
         public int KMLObjectsRadius = 5;
+        public int KMLObjectsLimit = 50;
         public string urlPath = "oruxpals";
         public string adminName = "ADMIN";
         public string sendBack = "no";

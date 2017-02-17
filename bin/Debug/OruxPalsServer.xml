@@ -82,8 +82,20 @@
 		
 	</forwardServices>
 	<!--
+		Static Objects
+		 
 		You can customize symbol of all objects for each kml file: <kml><symbol>/0</symbol> ... </kml>
 		or for each object in each file: <Placemark><symbol>/0</symbol> ... </Placemark>
+		
+		You can customize callsign format of all objects for each kml file:  <kml><format>ID{0}-{2}</format> .. </kml>,
+		   where {0} - Placemark ID in KML file, {1} firsts 2 symbols of file name, {2} - Placemark name [A-Z0-9]
+		
+		KMLObjectsRadius:		
+		  -1 - Everytime Objects (show always, even client position is not in radius range)
+		  >0 - Static Objects (show if client position is in radius range)
+		Eveytime objects will sends to APRS clients each 2.5 minutes (You can use it for ex. HOME, START, CHECKPOINT or FINISH)
+		Static objects will sends to APRS each 45 seconds (You can use if for ex. Gas Stations, Medical, Cafe, etc.)
 	-->
-	<KMLObjectsRadius help="Show KML objects to APRS client within radius, km (-1 - show always)">10</KMLObjectsRadius>
+	<KMLObjectsRadius help="Show KML objects to APRS client within radius, km (-1 - show always)">7</KMLObjectsRadius>
+	<KMLObjectsLimit help="Limit the number of objects to sent (nearest firsts)">50</KMLObjectsLimit>
 </OruxPalsServerConfig>

@@ -121,7 +121,7 @@ namespace OruxPals
                         _state = "Connected";
                         lastIncDT = DateTime.UtcNow;
                     }
-                    catch (Exception ex)
+                    catch
                     {
                         _state = "disconnected";
                         tcp_client.Close();
@@ -159,7 +159,7 @@ namespace OruxPals
                             do_incoming(line, ++incomingMessagesCounter);
                     };
                 }
-                catch (Exception ex)
+                catch
                 {
                     tcp_client.Close();
                     tcp_client = new TcpClient();

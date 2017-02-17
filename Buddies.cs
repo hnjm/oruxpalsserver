@@ -36,6 +36,7 @@ namespace OruxPals
         private byte maxHours = 48;
         private ushort greenMinutes = 60;
         private int KMLObjectsRadius = 5;
+        private int KMLObjectsLimit = 50;
 
         public delegate void BroadcastMethod(BroadCastInfo bdata);
         public BroadcastMethod onBroadcastAIS;
@@ -44,12 +45,21 @@ namespace OruxPals
 
         public List<PreloadedObject> Objects = new List<PreloadedObject>();
         public Hashtable ObjectsFiles = new Hashtable();
+        public System.Data.SQLite.SQLiteConnection sqlc;
 
-        public Buddies(byte maxHours, ushort greenMinutes, int KMLObjectsRadius)
+        public Buddies(byte maxHours, ushort greenMinutes, int KMLObjectsRadius, int KMLObjectsLimit)
         {
             this.maxHours = maxHours;
             this.greenMinutes = greenMinutes;
             this.KMLObjectsRadius = KMLObjectsRadius;
+            this.KMLObjectsLimit = KMLObjectsLimit;
+
+            string sqlfn = OruxPalsServerConfig.GetCurrentDir() + @"\StaticObjects.db";
+            if(File.Exists(sqlfn))
+            {
+                sqlc = new System.Data.SQLite.SQLiteConnection(String.Format("Data Source={0};Version=3;",sqlfn));
+                try { sqlc.Open(); } catch (Exception ex) { Console.WriteLine(ex.Message); };
+            };
 
             (new Thread(ClearThread)).Start();
             (new Thread(BroadcastThread)).Start();
@@ -58,6 +68,7 @@ namespace OruxPals
         public void Dispose()
         {
             keepAlive = false;
+            if(sqlc != null) sqlc.Close();
         }
 
         ~Buddies()
@@ -74,14 +85,15 @@ namespace OruxPals
                 foreach (string fl in fls)
                 {
                     string shortFN = Path.GetFileName(fl);
-                    string fileExt = Path.GetExtension(fl).ToLower();
-                    string filePrefix = Transliteration.Front(shortFN.ToUpper().Substring(0, 2));
-                    int routePoints = 0;
-                    int staticPoints = 0;
                     DateTime lastMDF = (new FileInfo(fl)).LastWriteTimeUtc;
 
                     if ((ObjectsFiles[shortFN] == null) || (((PreloadedObjectsKml)ObjectsFiles[shortFN]).lastMDF != lastMDF))
-                    {      
+                    {                        
+                        string fileExt = Path.GetExtension(fl).ToLower();
+                        string filePrefix = Transliteration.Front(shortFN.ToUpper().Substring(0, 2));
+                        int StaticPoints = 0;
+                        int EveytimePoints = 0;
+
                         lock (Objects)
                             if (Objects.Count > 0)
                                 for (int i = Objects.Count - 1; i >= 0; i--)
@@ -96,7 +108,7 @@ namespace OruxPals
                                 objs = PreloadedObjects.LoadFile(fl); 
                                 if ((objs != null) && (objs.objects != null))
                                     foreach (PreloadedObject po in objs.objects)
-                                        { if (po.radius < 0) staticPoints++; else routePoints++; };
+                                        { if (po.radius < 0) EveytimePoints++; else StaticPoints++; };
                             }
                             catch { };
                         };
@@ -113,9 +125,12 @@ namespace OruxPals
                                 string defSymbol = "\\C";
                                 XmlNode NodeSymbol = xd.SelectSingleNode("/kml/symbol");
                                 if (NodeSymbol != null) defSymbol = NodeSymbol.ChildNodes[0].Value;
+                                string defFormat = "R{0:000}-{1}"; // {0} - id; {1} - file prefix; {2} - Placemark Name without spaces
+                                XmlNode NodeFormat = xd.SelectSingleNode("/kml/format");
+                                if (NodeFormat != null) defFormat = NodeFormat.ChildNodes[0].Value;
                                 XmlNodeList nl = xd.GetElementsByTagName("Placemark");
                                 List<PreloadedObject> fromKML = new List<PreloadedObject>();
-                                routePoints = nl.Count;
+                                StaticPoints = nl.Count;
                                 if(nl.Count > 0)
                                     for (int i = 0; i < nl.Count; i++)
                                     {
@@ -123,6 +138,7 @@ namespace OruxPals
                                         {
                                             string pName = System.Security.SecurityElement.Escape(Transliteration.Front(nl[i].SelectSingleNode("name").ChildNodes[0].Value));
                                             pName = Regex.Replace(pName, "[\r\n\\(\\)\\[\\]\\{\\}\\^\\$\\&]+", "");
+                                            string pName2 = Regex.Replace(pName.ToUpper(), "[^A-Z0-9\\-]+", "");
                                             string symbol = defSymbol;
                                             if (nl[i].SelectSingleNode("symbol") != null)
                                                 symbol = nl[i].SelectSingleNode("symbol").ChildNodes[0].Value.Trim();
@@ -131,7 +147,7 @@ namespace OruxPals
                                                 string pPos = nl[i].SelectSingleNode("Point/coordinates").ChildNodes[0].Value.Trim();
                                                 string[] xyz = pPos.Split(new char[] { ',' }, 3);
                                                 PreloadedObject po = new PreloadedObject(
-                                                    String.Format("R{0:000}-{1}", i + 1, filePrefix), symbol, 
+                                                    String.Format(defFormat, i + 1, filePrefix, pName2), symbol, 
                                                     double.Parse(xyz[1], System.Globalization.CultureInfo.InvariantCulture), 
                                                     double.Parse(xyz[0], System.Globalization.CultureInfo.InvariantCulture),
                                                     KMLObjectsRadius, 
@@ -157,8 +173,8 @@ namespace OruxPals
                             lock (Objects)
                                 Objects.AddRange(objs.objects);
                         };
-                    };
-                    ObjectsFiles[shortFN] = new PreloadedObjectsKml(shortFN, lastMDF, routePoints, staticPoints);
+                        ObjectsFiles[shortFN] = new PreloadedObjectsKml(shortFN, lastMDF, StaticPoints, EveytimePoints);
+                    };                    
                 };
 
             List<Buddie> toUp = new List<Buddie>();
@@ -179,14 +195,56 @@ namespace OruxPals
         public PreloadedObject[] GetNearest(double lat, double lon)
         {
             List<PreloadedObject> objs = new List<PreloadedObject>();
+            
+            // FROM FILES
             PreloadedObject[] gfl;
             lock (Objects) gfl = Objects.ToArray();
             foreach (PreloadedObject obj in gfl)
             {
                 if(obj.radius < 0) continue;
-                if(GetLengthAB(lat,lon,obj.lat,obj.lon) < (obj.radius * 1000))
+                if((obj.distance = GetLengthAB(lat,lon,obj.lat,obj.lon)) < (obj.radius * 1000))
                     objs.Add(obj);
             };
+            
+            // FROM SQL //
+            if ((sqlc != null) && ((sqlc.State != System.Data.ConnectionState.Closed) && (sqlc.State != System.Data.ConnectionState.Broken)))
+            {
+                try
+                {
+                    double dLat = KMLObjectsRadius / (GetLengthAB(Math.Truncate(lat), Math.Truncate(lon), Math.Truncate(lat) + 1.0, Math.Truncate(lon)) / 1000.0);
+                    double dLon = KMLObjectsRadius / (GetLengthAB(Math.Truncate(lat), Math.Truncate(lon), Math.Truncate(lat), Math.Truncate(lon) + 1.0) / 1000.0);
+                    double minLat = lat - dLat;
+                    double maxLat = lat + dLat;
+                    double minLon = lon - dLon;
+                    double maxLon = lon + dLon;
+
+                    lock (sqlc)
+                    {
+                        // Select In Square //
+                        System.Data.SQLite.SQLiteCommand sc = new System.Data.SQLite.SQLiteCommand(
+                            String.Format(System.Globalization.CultureInfo.InvariantCulture,"SELECT * FROM OBJECTS WHERE LAT >= {0} AND LAT <= {1} AND LON >= {2} AND LON <= {3}",
+                            minLat, maxLat, minLon, maxLon), sqlc);
+                         
+                        try
+                        {
+                            System.Data.SQLite.SQLiteDataReader dr = sc.ExecuteReader();
+                            while (dr.Read())
+                            {
+                                PreloadedObject sqlo = new PreloadedObject(dr["NAME"].ToString(), dr["SYMBOL"].ToString(), (double)dr["LAT"], (double)dr["LON"],
+                                    KMLObjectsRadius, dr["COMMENT"].ToString(), "SQL");
+                                // Select in Radius //
+                                if ((sqlo.distance = GetLengthAB(lat, lon, sqlo.lat, sqlo.lon)) < (sqlo.radius * 1000))
+                                    objs.Add(sqlo);
+                            };
+                            dr.Close();
+                        }
+                        catch { };                        
+                    };
+                }
+                catch { };
+            };
+            objs.Sort(new PreloadedObjectComparer());
+            while (objs.Count > KMLObjectsLimit) objs.RemoveAt(KMLObjectsLimit);
             return objs.ToArray();
         }
 
@@ -222,21 +280,29 @@ namespace OruxPals
 
         public string GetStaticObjectsInfo()
         {
-            if (ObjectsFiles.Count == 0) return "No Any Objects Loaded";
             int ttlf = 0;
-            int ttls = 0;
-            int ttlr = 0;
+            int ttlet = 0;
+            int ttlst = 0;
             string txt = "";
             lock(ObjectsFiles)
                 foreach (string key in ObjectsFiles.Keys)
                 {
                     ttlf++;
                     PreloadedObjectsKml fi = (PreloadedObjectsKml)ObjectsFiles[key];
-                    ttlr += fi.routePoints;
-                    ttls += fi.staticPoints;
-                    txt += String.Format(" &nbsp; &nbsp; \"{0}\" - {1} route, {2} static objects<br/>", fi.shortFN, fi.routePoints, fi.staticPoints);
+                    ttlst += fi.StaticPoints;
+                    ttlet += fi.EveryTimePoints;
+                    txt += String.Format(" &nbsp; &nbsp; \"{0}\" - {1} static, {2} everytime objects<br/>", fi.shortFN, fi.StaticPoints, fi.EveryTimePoints);
                 };
-            txt += String.Format("<span style=\"color:green;\"> &nbsp; Total: {0} files, {1} route, {2} static objects<span><br/>", ttlf, ttlr, ttls);
+            txt += String.Format("<span style=\"color:green;\"> &nbsp; Total: {0} files, {1} static, {2} everytime objects</span><br/>", ttlf, ttlst, ttlet);
+            if ((sqlc != null) && ((sqlc.State != System.Data.ConnectionState.Closed) && (sqlc.State != System.Data.ConnectionState.Broken)))
+                lock (sqlc)
+                {
+                    long count = 0;
+                    System.Data.SQLite.SQLiteCommand sc = new System.Data.SQLite.SQLiteCommand("SELECT COUNT (*) FROM OBJECTS", sqlc);
+                    try { count = (long)sc.ExecuteScalar(); } catch { };
+                    txt += String.Format("<span style=\"color:orange;\"> &nbsp; SQLite DB \"StaticObjects.db\" - {0} static objects</span><br/>", count);
+                };
+            txt += String.Format("<span style=\"color:gray;\"> &nbsp; Show max {1} objects in radius: {0} km</span><br/>", KMLObjectsRadius, KMLObjectsLimit);
             return txt;
         }
 
@@ -263,7 +329,7 @@ namespace OruxPals
             lock (broadcastAPRS)
                 broadcastAPRS.Add(new BroadCastInfo(buddie.name, buddie.APRSData));
 
-            // No tx static & route objects
+            // No tx everytime & static objects
             if ((buddie.source != 5) && (buddie.source != 6))
             {
                 buddie.SetAIS();
@@ -689,6 +755,8 @@ namespace OruxPals
         public string comment = "";
         [XmlIgnore]
         public string fromFile = "";
+        [XmlIgnore]
+        public double distance = double.MaxValue;
 
         public PreloadedObject() { }
         public PreloadedObject(string name, string symbol, double lat, double lon, double radius, string comment, string fromFile)
@@ -714,6 +782,14 @@ namespace OruxPals
                 symbol[1] + " " + 
                 comment +
                 "\r\n";
+        }        
+    }
+
+    public class PreloadedObjectComparer : IComparer<PreloadedObject>
+    {
+        public int Compare(PreloadedObject a, PreloadedObject b)
+        {
+            return a.distance.CompareTo(b.distance);
         }
     }
 
@@ -721,8 +797,8 @@ namespace OruxPals
     {
         public string shortFN;
         public DateTime lastMDF;
-        public int routePoints = 0;
-        public int staticPoints = 0;
+        public int StaticPoints = 0;
+        public int EveryTimePoints = 0;
         
         public PreloadedObjectsKml() { }
 
@@ -736,8 +812,8 @@ namespace OruxPals
         {
             this.shortFN = shortFN;
             this.lastMDF = lastMDF;
-            this.routePoints = pointsCount;
-            this.staticPoints = staticPoints;
+            this.StaticPoints = pointsCount;
+            this.EveryTimePoints = staticPoints;
         }
 
     }

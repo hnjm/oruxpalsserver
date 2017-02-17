@@ -2,6 +2,8 @@ This is the OruxPalsServer specially written for OruxMaps Android Application.
 The server allow to watch any users geo positions as vessels on the map by AIS.
 Users can upload their positions to the server by GPSGate or MapMyTracks protocols.
 
+Server can send nearest (in raidus range) static objects to each APRS client 
+(defined on his APRS position). Static objects could be used from XML, KML or SQLite.
 
 
 WEB ONLINE:
@@ -97,5 +99,14 @@ How to launch:
 	
 	Generate passcode:
 		OruxPalsServer.exe userName
+
+	Import kml file to SQLite `RouteObjects.db`
+		OruxPalsServer.exe /kml2sql
+		OruxPalsServer.exe /kml2sql <file>
+
+SQLite DB:
+  To manage Data you can user SQLiteStudio or SQLiteBrowser.
+  Static objects are in Table `OBJECTS`
+  To clean all data from SQLite just copy `Empty.db` to `StaticObjects.db`
 	
 	

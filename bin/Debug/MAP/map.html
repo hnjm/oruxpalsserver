@@ -30,6 +30,8 @@
 		if(window.location.hash) hashusr = window.location.hash.substr(1).toUpperCase();
 	
 		var map = L.map('map', {center: [55.7, 37.7], zoom: (hashusr == "" ? 10 : 13), zoomControl: false, zoomsliderControl: true});
+		map.doubleClickZoom.disable();
+		map.on('dblclick', function(e) { UpdateData('MARKER', 'Never', e.latlng.lat.toFixed(7), e.latlng.lng.toFixed(7), 0, 0, 'I am', '', 0, '/"', 0, 'My marker by double click', ''); });
 
 		var project = function (map, crs, latlng) { return crs.latLngToPoint(latlng, map.getZoom()); };
 
@@ -167,6 +169,12 @@
     				 "Яндекс Пробки + События": YandexExtTrafficLayer
 					 };
 		L.control.layers(basemaps, trafficLayers).addTo(map);
+		
+		var pad = function(num, size) {
+			var s = num+"";
+			while (s.length < size) s = "0" + s;
+			return s;
+		};
 				
 		// STORE CLIENTS
 		var marker_cache = [];
@@ -180,11 +188,18 @@
 			var txt = '<div><table cellpadding="1" cellspacing="1" border="0" style="font-size:12px;">';
 			txt += '<tr><td>Source:</td><td> '+source+' </td></tr>';
 			txt += '<tr><td>Received:</td><td> '+dt+' UTC</td></tr>';
-			txt += '<tr><td>Position:</td><td> '+lat+' '+lon+'</td></tr>';
+			txt += '<tr><td rowspan="3">Position:</td><td style="border-top: solid 1px navy;"> '+lat + ' ' + (lat > 0 ? "N" : "S") +' &nbsp; '+lon+' '+ (lon > 0 ? "E" : "W") + '</td></tr>';
+			var lat2 = pad(Math.floor(lat), 2)  + '&deg; ' + pad(((lat - Math.floor(lat)) * 60).toFixed(4), 2) + "' " + (lat > 0 ? "N" : "S");
+            var lon2 = pad(Math.floor(lon), 3) + '&deg; ' + pad(((lon - Math.floor(lon)) * 60).toFixed(4), 2) + "' " + (lon > 0 ? "E" : "W");
+			txt += '<tr><td> '+lat2+' &nbsp;  '+lon2+'</td></tr>';
+			var lat3 = pad(Math.floor(lat), 2)  + '&deg; ' + pad(Math.floor((lat - Math.floor(lat)) * 60), 2) + "' " + pad(((((lat - Math.floor(lat)) * 60) - Math.floor((lat - Math.floor(lat)) * 60)) * 60).toFixed(2),2) + '" ' + (lat > 0 ? "N" : "S");
+            var lon3 = pad(Math.floor(lon), 3) + '&deg; ' + pad(Math.floor((lon - Math.floor(lon)) * 60), 2) + "' " + pad(((((lon - Math.floor(lon)) * 60) - Math.floor((lon - Math.floor(lon)) * 60)) * 60).toFixed(2),2) + '" ' + (lon > 0 ? "E" : "W");
+			txt += '<tr><td style="border-bottom: solid 1px navy;"> '+lat3+' &nbsp;  '+lon3+'</td></tr>';
 			txt += '<tr><td>Speed:</td><td> '+speed+' km/h; '+(speed * 0.62137119).toFixed(1)+' mph; '+(speed / 1.852).toFixed(1)+' knots</td></tr>';
 			txt += '<tr><td>Heading:</td><td> '+heading+'&deg; '+HeadingToText(heading)+'</td></tr>';			
 			txt += '<tr><td>Comment:</td><td> <span style="color:navy;font-style:italic;">'+comment+'</span> </td></tr>';
 			txt += '<tr><td>Status:</td><td> <span style="color:maroon;font-style:italic;">'+status+'</span> </td></tr>';
+			txt += '<tr><td style="font-size:10px;color:gray;">More:</td><td style="font-size:10px;color:gray;"><a href="#" onclick="GetStatic('+lat+','+lon+');return false;">Get nearest static objects</a></td></tr>';
 			txt += '</div>';			
 						
 			for(i=0;i<marker_cache.length;i++) marker_cache[i].marker.closePopup();
@@ -308,9 +323,9 @@
 		
 		var UpdateStatus = function()
 		{
-			var html = 'Locate user: <input type="text" style="border:solid 1px gray;" id="Locate" onkeyup="onLocate(event)" value="'+hashusr+'"></input> <small><a href="#" onclick="onFollow(event)">follow</a> <a href="#" onclick="onReset(event)">reset</a></small><br/>';
-			html += 'On Map: ' + marker_cache.length+', <a href="#" onclick="ClearPaths();return false;" title="Clear Paths">Clear paths</a><br/>';		
-			html += '<a href="info">Main View</a><br/>';
+			var html = 'Locate user: <input type="text" style="border:solid 1px gray;" id="Locate" onkeyup="onLocate(event)" value="'+hashusr+'"></input><small> or <a href="#" onclick="onFollow(event)">follow</a> or <a href="#" onclick="onReset(event)">reset</a></small><br/>';
+			html += 'On Map: ' + marker_cache.length+', Clear: <a href="#" onclick="ClearPaths();return false;" title="Clear Paths">paths</a>, <a href="#" onclick="ClearMap();return false;" title="Clear All">all</a> or <a href="#" onclick="ClearStatic();return false;" title="Clear Static">static objects</a><br/>';		
+			html += '<a href="info">Main View</a> | <a href="#" onclick="UpdateBuddies();return false;">Update data</a><br/>';
 			document.getElementById('caption').innerHTML = html;
 			
 			var ulist = '';
@@ -359,6 +374,38 @@
 			};
 		};		
 		
+		// clear map
+		var ClearMap = function()
+		{
+			for(i=0;i<marker_cache.length;i++)
+			{			
+				if(marker_cache[i].line != null) map.removeLayer(marker_cache[i].line);				
+				marker_cache[i].line = null;
+				map.removeLayer(marker_cache[i].marker);			
+				marker_cache[i].marker = null;
+			};
+			marker_cache = [];
+			UpdateStatus();
+		};		
+		
+		// clear map
+		var ClearStatic = function()
+		{
+		    var tmpa = [];
+			for(i=0;i<marker_cache.length;i++)
+			{		
+				if(marker_cache[i].id < 0)
+				{
+					map.removeLayer(marker_cache[i].marker);			
+					marker_cache[i].marker = null;
+				}
+				else 
+					tmpa.push(marker_cache[i]);
+			};
+			marker_cache = tmpa;
+			UpdateStatus();
+		};		
+		
 		var UpdateBuddies = function()
 		{
 			// Readraw old
@@ -386,6 +433,22 @@
 
 			setTimeout(UpdateBuddies,15000);
 		};
+		
+		var GetStatic = function(lat,lon)
+		{
+			$.get("vnear/"+lat+"/"+lon+"/", function(data) 
+			{
+				var robj = (new Function('','return '+data))();				
+				if((robj != null) && (robj.length > 0))
+				{
+					for (var i=0;i<robj.length;i++)
+						UpdateData(robj[i].user,robj[i].received,robj[i].lat,robj[i].lon,robj[i].speed,robj[i].hdg,robj[i].source,robj[i].id,robj[i].age,robj[i].symbol,robj[i].r,robj[i].comment,robj[i].status);
+				}
+				else
+					for(i=0;i<marker_cache.length;i++) marker_cache[i].marker.closePopup();
+				
+			});
+		}
 		
 		var Follow = function()
 		{

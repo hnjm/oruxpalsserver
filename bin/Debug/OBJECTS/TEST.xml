@@ -1,22 +1,37 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <PreloadedObjects>
-	<!-- show always -->
-	<obj name="MAK-UB" symbol="\R" lat="55.548532" lon="37.543301" radius="-1">McDonalds Uzhnoe Butovo</obj>	
-	<obj name="KFC-UB" symbol="\R" lat="55.543382" lon="37.531811" radius="-1">KFC Uzhnoe Butovo</obj>
-	<obj name="BK-UB" symbol="\R" lat="55.551413" lon="37.528101" radius="-1">Burger King Uzhnoe Butovo</obj>	
-	<obj name="BK-MKLP" symbol="\R" lat="55.57281" lon="37.67396" radius="-1">BK, MKAD, Lipeskaya</obj>
-	<obj name="BK-MKVA" symbol="\R" lat="55.577517" lon="37.59718" radius="-1">BK, MKAD, Varshavka</obj>		
+
+	<!-- Everytime Objects (show always, even client position is not in radius range) -->
+	<!-- Everytime objects will sends to APRS clients each 2.5 minutes (You can use it for ex. HOME, START, CHECKPOINT or FINISH) -->
 	
-	<!-- Show Route -->
+	<obj name="MAK-UB" symbol="\R" lat="55.548532" lon="37.543301" radius="-1">McDonalds Uzhnoe Butovo</obj>		
+	<obj name="BK-UB" symbol="\R" lat="55.551413" lon="37.528101" radius="-1">Burger King Uzhnoe Butovo</obj>		
+	
+	<obj name="DA4A-TM" symbol="Az" lat="55.27713" lon="37.71546" radius="-1">Dacha, Temych</obj>
+	<obj name="DA4A-TA" symbol="Tz" lat="55.24958" lon="37.45499" radius="-1">Dacha, Tarasov</obj>
+	
+	<obj name="USH-KAR-1" symbol="/i" lat="53.92158" lon="38.45408" radius="-1">Ushakovskie Karery Jul 2016</obj>
+	<obj name="STEPANOVO" symbol="/;" lat="56.26146" lon="37.43308" radius="-1">Stepanovo Slopes</obj>		
+	
+	<!-- Static Objects (show if client position is in radius range) -->
+	<!-- Static objects will sends to APRS each 45 seconds (You can use if for ex. Gas Stations, Medical, Cafe, etc.) -->
+	
+	<obj name="KFC-UB" symbol="\R" lat="55.543382" lon="37.531811" radius="8">KFC Uzhnoe Butovo</obj>
+	<obj name="BK-MKLP" symbol="\R" lat="55.57281" lon="37.67396" radius="5">BK, MKAD, Lipeskaya</obj>
+	<obj name="BK-MKVA" symbol="\R" lat="55.577517" lon="37.59718" radius="5">BK, MKAD, Varshavka</obj>		
 	
 	<obj name="KFC-KS" symbol="\R" lat="56.05578" lon="37.53104" radius="10">KFC, TC Kashtanka</obj>
 	<obj name="MAK-IK" symbol="\R" lat="56.1477" lon="37.49104" radius="10">McDonalds, Iksha</obj>
 	<obj name="MAK-YAHR" symbol="\R" lat="56.2799218" lon="37.5020569" radius="10">McDonalds, Yahroma</obj>	
 	
-	<obj name="KFC-M4" symbol="\R" lat="55.515303" lon="37.710464" radius="7">KFC, M4 DON</obj>
+	<obj name="KFC-M4" symbol="\R" lat="55.515803" lon="37.710064" radius="7">KFC, M4 DON</obj>
 	<obj name="MAK-KFC" symbol="\R" lat="55.4451605" lon="37.618088" radius="7">McDonalds and KFC, M2 KRYM</obj>
+	<obj name="VOLOSOVO" symbol="\^" lat="55.066278" lon="37.45471" radius="25">DZ Volosovo</obj>	
+	<obj name="PUSCHINO" symbol="\^" lat="54.784701" lon="37.646198" radius="25">DZ Pushchino (Bolshoe Gryzlovo)</obj>	
+	<obj name="AEROGRAD" symbol="\^" lat="55.089495" lon="38.918552" radius="25">DZ Kolomno (AeroGrad)</obj>	
+	
 	<!--
-		radius in km
+		radius in km (int)
 		if(radius == -1) object will show always (on web map too)
 		if(radius > 0) object information will sends to APRS client if client in object raidius range
 	-->
