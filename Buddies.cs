@@ -194,7 +194,12 @@ namespace OruxPals
 
         public PreloadedObject[] GetNearest(double lat, double lon)
         {
-            List<PreloadedObject> objs = new List<PreloadedObject>();
+            return GetNearest(lat, lon, -1);
+        }
+
+        public PreloadedObject[] GetNearest(double lat, double lon, int kmRadius)
+        {
+            List<PreloadedObject> objs = new List<PreloadedObject>();            
             
             // FROM FILES
             PreloadedObject[] gfl;
@@ -202,17 +207,19 @@ namespace OruxPals
             foreach (PreloadedObject obj in gfl)
             {
                 if(obj.radius < 0) continue;
-                if((obj.distance = GetLengthAB(lat,lon,obj.lat,obj.lon)) < (obj.radius * 1000))
+                if((obj.distance = GetLengthAB(lat,lon,obj.lat,obj.lon)) < ((kmRadius < 0 ? obj.radius : kmRadius) * 1000))
                     objs.Add(obj);
             };
-            
+
+            if (kmRadius < 0) kmRadius = KMLObjectsRadius;
+
             // FROM SQL //
             if ((sqlc != null) && ((sqlc.State != System.Data.ConnectionState.Closed) && (sqlc.State != System.Data.ConnectionState.Broken)))
             {
                 try
                 {
-                    double dLat = KMLObjectsRadius / (GetLengthAB(Math.Truncate(lat), Math.Truncate(lon), Math.Truncate(lat) + 1.0, Math.Truncate(lon)) / 1000.0);
-                    double dLon = KMLObjectsRadius / (GetLengthAB(Math.Truncate(lat), Math.Truncate(lon), Math.Truncate(lat), Math.Truncate(lon) + 1.0) / 1000.0);
+                    double dLat = kmRadius / (GetLengthAB(Math.Truncate(lat), Math.Truncate(lon), Math.Truncate(lat) + 1.0, Math.Truncate(lon)) / 1000.0);
+                    double dLon = kmRadius / (GetLengthAB(Math.Truncate(lat), Math.Truncate(lon), Math.Truncate(lat), Math.Truncate(lon) + 1.0) / 1000.0);
                     double minLat = lat - dLat;
                     double maxLat = lat + dLat;
                     double minLon = lon - dLon;
@@ -231,7 +238,7 @@ namespace OruxPals
                             while (dr.Read())
                             {
                                 PreloadedObject sqlo = new PreloadedObject(dr["NAME"].ToString(), dr["SYMBOL"].ToString(), (double)dr["LAT"], (double)dr["LON"],
-                                    KMLObjectsRadius, dr["COMMENT"].ToString(), "SQL");
+                                    kmRadius, dr["COMMENT"].ToString(), "SQL");
                                 // Select in Radius //
                                 if ((sqlo.distance = GetLengthAB(lat, lon, sqlo.lat, sqlo.lon)) < (sqlo.radius * 1000))
                                     objs.Add(sqlo);
@@ -327,7 +334,7 @@ namespace OruxPals
             
             buddie.SetAPRS();
             lock (broadcastAPRS)
-                broadcastAPRS.Add(new BroadCastInfo(buddie.name, buddie.APRSData));
+                broadcastAPRS.Add(new BroadCastInfo(buddie.source == 5 ? "" : buddie.name, buddie.APRSData));
 
             // No tx everytime & static objects
             if ((buddie.source != 5) && (buddie.source != 6))
@@ -422,10 +429,10 @@ namespace OruxPals
             try { PreloadObjects(); } catch { };
 
             byte counter = 0;
-            byte filectr = 0;
+            ushort filectr = 0;
             while (keepAlive)
             {
-                if (filectr++ == 150) //each 2.5 min
+                if (filectr++ == 600) //each 10 min
                     try { filectr = 0; PreloadObjects(); } catch { };
                 if (++counter == 15)
                 {
@@ -539,7 +546,7 @@ namespace OruxPals
             return (symbol == null) || (symbol == String.Empty) || (symbol == "//");
         }
 
-        public byte source; // 0 - unknown; 1 - GPSGate Format; 2 - MapMyTracks Format; 3 - APRS; 4 - FRS
+        public byte source; // 0 - unknown; 1 - GPSGate Format; 2 - MapMyTracks Format; 3 - APRS; 4 - FRS; 5 - everytime; 6 - static
         public string name;                        
         public double lat;
         public double lon;

@@ -93,8 +93,12 @@
 		KMLObjectsRadius:		
 		  -1 - Everytime Objects (show always, even client position is not in radius range)
 		  >0 - Static Objects (show if client position is in radius range)
-		Eveytime objects will sends to APRS clients each 2.5 minutes (You can use it for ex. HOME, START, CHECKPOINT or FINISH)
+		Eveytime objects will sends to APRS clients each 10 minutes (You can use it for ex. HOME, START, CHECKPOINT or FINISH)
 		Static objects will sends to APRS each 45 seconds (You can use if for ex. Gas Stations, Medical, Cafe, etc.)
+		
+		You can set radius range to show objects for each APRS user with filter (in APRS auth string):
+			me/10 - static objects from user in 10 km range
+			me/0 - no static objects
 	-->
 	<KMLObjectsRadius help="Show KML objects to APRS client within radius, km (-1 - show always)">7</KMLObjectsRadius>
 	<KMLObjectsLimit help="Limit the number of objects to sent (nearest firsts)">50</KMLObjectsLimit>

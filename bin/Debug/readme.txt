@@ -38,11 +38,26 @@ CONFIGURE ORUXMAPS:
 		AIS IP URL:  127.0.0.1:12015
 
 		
-CONFIGURE APRS Client (APRSDroid)
-
+CONFIGURE APRS Client (APRSDroid)   
 
 	To connect for view & upload data use APRS Client:
 		URL: 127.0.0.1:12015    
+		
+	filter supported (in APRS auth string):	
+		Static objects filter (filter is not apply for users position):
+			me/10 - static objects from me in 10 km range
+			me/0 - no static objects
+		; user can use filter me/range, if he doesn't want to use specified range by xml config file
+		; if user doesn't use me/range filter, static objects will display within range from xml config file
+		User (Group) filter (filter is not apply for static objects):
+			+sw/A/B/C - allow user pos with name starts with A or B or C
+			+ew/A/B/C - allow user pos with name ends with A or B or C
+			+fn/ULKA/RUZA -  allow user pos with name ULKA or RUZA
+			-sw/A/B/C - deny user pos with name starts with A or B or C		
+			-ew/A/B/C - deny user pos with name ends with A or B or C		
+			-fn/ULKA/RUZA -  deny user pos with name ULKA or RUZA
+		; allow filters are first processed, then deny.
+		; by default is allow all. But if you use any + filters, by default is deny.
 		
 	SUPPORTED COMMANDS FROM APRSDroid to Server
 		msg to ORXPLS-GW: forward   - get forward state for user (<u forward="???"/> tag)

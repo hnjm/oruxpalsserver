@@ -19,7 +19,7 @@ namespace OruxPals
     {
         public static string serviceName { get { return "OruxPalsServer"; } }
         public string ServerName = "OruxPalsServer";
-        public static string softver { get { return "OruxPalsServer v0.10a"; } }
+        public static string softver { get { return "OruxPalsServer v0.11a"; } }
 
         private static bool _NoSendToFRS = true; // GPSGate Tracker didn't support $FRPOS
 
@@ -341,6 +341,7 @@ namespace OruxPals
                 //string software = rm.Groups[3].Value;
                 //string version = rm.Groups[4].Value;
                 string doptext = loginstring.Substring(rm.Groups[0].Value.Length).Trim();
+                if(doptext.IndexOf("filter") == 0) cd.SetFilter(doptext.Substring(7));
 
                 int psw = -1;
                 int.TryParse(password, out psw);
@@ -368,22 +369,7 @@ namespace OruxPals
                     try { cd.stream.Write(ret, 0, ret.Length); }
                     catch { };
 
-                    if (BUDS != null)
-                    {
-                        Buddie[] bup = BUDS.Current;
-                        List<byte[]> blist = new List<byte[]>();
-                        foreach (Buddie b in bup)
-                        {
-                            if(sendBack)
-                                blist.Add(b.APRSData);
-                            else if(b.name != cd.user)
-                                blist.Add(b.APRSData);
-                        };
-                        foreach (byte[] ba in blist)
-                            try { cd.stream.Write(ba, 0, ba.Length); }
-                            catch { };
-                    };
-
+                    SendBuddies(cd);                    
                     return true;
                 };
             };
@@ -396,17 +382,7 @@ namespace OruxPals
                 try { cd.stream.Write(ret, 0, ret.Length); }
                 catch { };
 
-                if (BUDS != null)
-                {
-                    Buddie[] bup = BUDS.Current;
-                    List<byte[]> blist = new List<byte[]>();
-                    foreach (Buddie b in bup)
-                        blist.Add(b.APRSData);                        
-                    foreach (byte[] ba in blist)
-                        try { cd.stream.Write(ba, 0, ba.Length); }
-                        catch { };
-                };
-
+                SendBuddies(cd);
                 return true;
             };
         }
@@ -497,6 +473,28 @@ namespace OruxPals
             };
         }
 
+        private void SendBuddies(ClientData cd)
+        {
+            if (BUDS != null)
+            {
+                Buddie[] bup = BUDS.Current;
+                List<byte[]> blist = new List<byte[]>();
+                foreach (Buddie b in bup)
+                {
+                    if((b.source != 5) && (b.name != cd.user))
+                        if((cd.filter != null) && (!cd.filter.PassName(b.name))) 
+                            continue;
+                    if (sendBack || (cd.state == 6) || (b.source == 5))
+                        blist.Add(b.APRSData);
+                    else if (b.name != cd.user)
+                        blist.Add(b.APRSData);
+                };
+                foreach (byte[] ba in blist)
+                    try { cd.stream.Write(ba, 0, ba.Length); }
+                    catch { };
+            };
+        }
+
         private void SendNearest()
         {
             List<ClientData> cdl = new List<ClientData>();
@@ -511,14 +509,20 @@ namespace OruxPals
                     foreach (ClientData ci in cdl)
                         if ((ci.lastFixYX != null) && (ci.lastFixYX.Length == 3) && ((int)ci.lastFixYX[0] == 1))
                         {
-                            PreloadedObject[] nearest = BUDS.GetNearest(ci.lastFixYX[1], ci.lastFixYX[2]);
-                            if ((nearest != null) && (nearest.Length > 0))
-                                foreach (PreloadedObject near in nearest)
-                                {
-                                    byte[] bts = Encoding.ASCII.GetBytes(near.ToString());
-                                    try { ci.stream.Write(bts, 0, bts.Length); }
-                                    catch { };
-                                };
+                            if ((ci.filter == null) || (ci.filter.inMyRadiusKM != 0))
+                            {
+                                PreloadedObject[] nearest = BUDS.GetNearest(ci.lastFixYX[1], ci.lastFixYX[2], ci.filter == null ? -1 : ci.filter.inMyRadiusKM);
+                                if ((nearest != null) && (nearest.Length > 0))
+                                    foreach (PreloadedObject near in nearest)
+                                    {
+                                        if ((ci.filter == null) || (ci.filter.PassName(near.name)))
+                                        {
+                                            byte[] bts = Encoding.ASCII.GetBytes(near.ToString());
+                                            try { ci.stream.Write(bts, 0, bts.Length); }
+                                            catch { };
+                                        };
+                                    };
+                            };
                             ci.lastFixYX = new double[] { 0, 0, 0 };
                         };
         }
@@ -1514,10 +1518,19 @@ namespace OruxPals
                         cdlist.Add(cd);
                     if ((cd.state == 4)  && bAPRS) // APRS rx/tx
                     {
-                        if (sendBack)
+                        if (fromUser != cd.user)
+                            if ((cd.filter != null) && (!cd.filter.PassName(fromUser)))
+                                continue;
+
+                        if (sendBack || (cd.state == 6))
                             cdlist.Add(cd);
                         else if (fromUser != cd.user)
                             cdlist.Add(cd);
+
+                        //if (sendBack)
+                        //    cdlist.Add(cd);
+                        //else if (fromUser != cd.user)
+                        //    cdlist.Add(cd);
                     };
                     if (!_NoSendToFRS)
                     {
@@ -1879,6 +1892,87 @@ namespace OruxPals
 
             public string user = "unknown";
             public double[] lastFixYX = new double[] { 0, 0, 0 };
+
+            public ClientAPRSFilter filter = null;
+
+            public void SetFilter(string filter)
+            {
+                this.filter = new ClientAPRSFilter(filter);
+            }
+        }
+
+        private class ClientAPRSFilter
+        {
+            public string filter = "";
+            public int inMyRadiusKM = -1;
+            public string[] allowStartsWith = new string[0];
+            public string[] allowEndsWith = new string[0];
+            public string[] allowFullName = new string[0];
+            public string[] denyStartsWith = new string[0];
+            public string[] denyEndsWith = new string[0];
+            public string[] denyFullName = new string[0];
+
+            public ClientAPRSFilter(string filter)
+            {
+                this.filter = filter;
+                Init();
+            }
+
+            private void Init()
+            {
+                Match m = Regex.Match(filter, @"me/(\d+)");
+                if (m.Success) inMyRadiusKM = int.Parse(m.Groups[1].Value);
+                m = Regex.Match(filter, @"\+sw/([A-Z\d/\-]+)");
+                if (m.Success) allowStartsWith = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                m = Regex.Match(filter, @"\+ew/([A-Z\d/\-]+)");
+                if (m.Success) allowEndsWith = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                m = Regex.Match(filter, @"\+fn/([A-Z\d/\-]+)");
+                if (m.Success) allowFullName = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                m = Regex.Match(filter, @"\-sw/([A-Z\d/\-]+)");
+                if (m.Success) denyStartsWith = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                m = Regex.Match(filter, @"\-ew/([A-Z\d/\-]+)");
+                if (m.Success) denyEndsWith = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                m = Regex.Match(filter, @"\-fn/([A-Z\d/\-]+)");
+                if (m.Success) denyFullName = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);                    
+            }
+
+            public bool PassName(string name)
+            {
+                if((name == null)||(name == ""))return true;
+                name = name.ToUpper();
+                bool pass = true;
+                if ((allowStartsWith != null) && (allowStartsWith.Length > 0))
+                {
+                    pass = false;
+                    foreach (string sw in allowStartsWith)
+                        if (name.StartsWith(sw)) return true;
+                };
+                if ((allowEndsWith != null) && (allowEndsWith.Length > 0))
+                {
+                    pass = false;
+                    foreach (string ew in allowEndsWith)
+                        if (name.EndsWith(ew)) return true;
+                };
+                if ((allowFullName != null) && (allowFullName.Length > 0))
+                {
+                    pass = false;
+                    foreach (string fn in allowFullName)
+                        if (name == fn)
+                            return true;
+                };
+                //
+                if ((denyStartsWith != null) && (denyStartsWith.Length > 0))
+                    foreach (string sw in denyStartsWith)
+                        if (name.StartsWith(sw)) return false;
+                if ((denyEndsWith != null) && (denyEndsWith.Length > 0))
+                    foreach (string ew in denyEndsWith)
+                        if (name.EndsWith(ew)) return false;
+                if ((denyFullName != null) && (denyFullName.Length > 0))
+                    foreach (string fn in denyFullName)
+                        if (name == fn)
+                            return false;
+                return pass;
+            }
         }
     }
 
