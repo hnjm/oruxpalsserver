@@ -194,10 +194,10 @@ namespace OruxPals
 
         public PreloadedObject[] GetNearest(double lat, double lon)
         {
-            return GetNearest(lat, lon, -1);
+            return GetNearest(lat, lon, -1, -1);
         }
 
-        public PreloadedObject[] GetNearest(double lat, double lon, int kmRadius)
+        public PreloadedObject[] GetNearest(double lat, double lon, int kmRadius, int maxObjects)
         {
             List<PreloadedObject> objs = new List<PreloadedObject>();            
             
@@ -212,6 +212,7 @@ namespace OruxPals
             };
 
             if (kmRadius < 0) kmRadius = KMLObjectsRadius;
+            if (maxObjects < 0) maxObjects = KMLObjectsLimit;
 
             // FROM SQL //
             if ((sqlc != null) && ((sqlc.State != System.Data.ConnectionState.Closed) && (sqlc.State != System.Data.ConnectionState.Broken)))
@@ -251,7 +252,7 @@ namespace OruxPals
                 catch { };
             };
             objs.Sort(new PreloadedObjectComparer());
-            while (objs.Count > KMLObjectsLimit) objs.RemoveAt(KMLObjectsLimit);
+            while (objs.Count > maxObjects) objs.RemoveAt(maxObjects);
             return objs.ToArray();
         }
 

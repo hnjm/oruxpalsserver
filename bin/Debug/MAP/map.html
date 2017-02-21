@@ -8,7 +8,7 @@
 			<link rel="stylesheet" href="v/leaflet/leaflet.ie.css" />
 			<link rel="stylesheet" href="v/leaflet/L.Control.Zoomslider/L.Control.Zoomslider.ie.css" />
 		<![endif]-->		
-		<script src="v/jquery.js"></script>		
+		<script src="v/jquery.js"></script>
 		<script src="v/jQueryRotate.js"></script>		
 		<script src="v/leaflet/leaflet.js"></script>				
 		<link rel="stylesheet" href="v/leaflet/L.Control.Zoomslider/L.Control.Zoomslider.css" />		
@@ -17,13 +17,14 @@
 		<script src="v/leaflet/leaflet.label.js"></script>				
 	</head>
 	
-	<body style="margin:0px;padding:0px;">
-		<div id="map" style="width:100%; height:100%"></div>
+	<body style="margin:0px;padding:0px;">		
+		<div id="map" style="width:100%; height:100%"></div>		
 		<div id="caption" style="position:absolute;left:44px;top:10px;"></div>
 		<div style="position:absolute;left:44px;top:72px;width:400px;">
 				Users: <a href="#" onclick="$('#userlist').toggle();return false;" style="font-size:12px;">.....</a> 
 				<span id="userlist" style="display:none;background:rgba(255,255,255,0.5);font-size:13px;"></span>			
 		</div>
+		<div id="XXX" style="position:absolute;left:44px;top:10px;">sfsaf</div>
 	</body>
 	<script>
 		var hashusr = "";
@@ -33,8 +34,8 @@
 		map.doubleClickZoom.disable();
 		map.on('dblclick', function(e) { UpdateData('MARKER', 'Never', e.latlng.lat.toFixed(7), e.latlng.lng.toFixed(7), 0, 0, 'I am', '', 0, '/"', 0, 'My marker by double click', ''); });
 
-		var project = function (map, crs, latlng) { return crs.latLngToPoint(latlng, map.getZoom()); };
-
+		var project = function (map, crs, latlng) { return crs.latLngToPoint(latlng, map.getZoom()); };		
+		
 		L.TileLayer.prototype._update = function () {
 			var bounds = this._map.getPixelBounds(),
 				zoom = this._map.getZoom(),

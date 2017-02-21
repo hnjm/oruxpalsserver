@@ -45,7 +45,8 @@ CONFIGURE APRS Client (APRSDroid)
 		
 	filter supported (in APRS auth string):	
 		Static objects filter (filter is not apply for users position):
-			me/10 - static objects from me in 10 km range
+			me/10/30 - maximum 30 static objects from me in 10 km range
+			me/10 - static objects from me in 10 km range			
 			me/0 - no static objects
 		; user can use filter me/range, if he doesn't want to use specified range by xml config file
 		; if user doesn't use me/range filter, static objects will display within range from xml config file
@@ -58,6 +59,9 @@ CONFIGURE APRS Client (APRSDroid)
 			-fn/ULKA/RUZA -  deny user pos with name ULKA or RUZA
 		; allow filters are first processed, then deny.
 		; by default is allow all. But if you use any + filters, by default is deny.
+		You can use Group filter to create separeted groups that receive positions only from itself group users, ex:
+			for users: USERAG1, USER2G1,USERBG1,USER2G1 set filter: +ew/G1
+			for users: G2ANNA,G2ALEX,G3VICTOR set filter: +sw/G3
 		
 	SUPPORTED COMMANDS FROM APRSDroid to Server
 		msg to ORXPLS-GW: forward   - get forward state for user (<u forward="???"/> tag)

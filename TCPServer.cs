@@ -19,7 +19,7 @@ namespace OruxPals
     {
         public static string serviceName { get { return "OruxPalsServer"; } }
         public string ServerName = "OruxPalsServer";
-        public static string softver { get { return "OruxPalsServer v0.11a"; } }
+        public static string softver { get { return "OruxPalsServer v0.12a"; } }
 
         private static bool _NoSendToFRS = true; // GPSGate Tracker didn't support $FRPOS
 
@@ -341,8 +341,9 @@ namespace OruxPals
                 //string software = rm.Groups[3].Value;
                 //string version = rm.Groups[4].Value;
                 string doptext = loginstring.Substring(rm.Groups[0].Value.Length).Trim();
-                if(doptext.IndexOf("filter") == 0) cd.SetFilter(doptext.Substring(7));
-
+                if (doptext.IndexOf("filter") >= 0)
+                    cd.SetFilter(doptext.Substring(doptext.IndexOf("filter") + 7));
+                
                 int psw = -1;
                 int.TryParse(password, out psw);
                 // check for valid HAM user or for valid OruxPalsServer user
@@ -402,7 +403,8 @@ namespace OruxPals
                 // filter ... active
                 if (filter != "")
                 {
-                    string resp = "# "+filter+" inactive\r\n";
+                    string fres = cd.SetFilter(filter.Substring(7));
+                    string resp = "# filter '" + fres + "' is active\r\n";
                     byte[] bts = Encoding.ASCII.GetBytes(resp);
                     try { cd.stream.Write(bts, 0, bts.Length); }
                     catch { }
@@ -511,7 +513,7 @@ namespace OruxPals
                         {
                             if ((ci.filter == null) || (ci.filter.inMyRadiusKM != 0))
                             {
-                                PreloadedObject[] nearest = BUDS.GetNearest(ci.lastFixYX[1], ci.lastFixYX[2], ci.filter == null ? -1 : ci.filter.inMyRadiusKM);
+                                PreloadedObject[] nearest = BUDS.GetNearest(ci.lastFixYX[1], ci.lastFixYX[2], ci.filter == null ? -1 : ci.filter.inMyRadiusKM, ci.filter == null ? -1 : ci.filter.maxStaticObjectsCount);
                                 if ((nearest != null) && (nearest.Length > 0))
                                     foreach (PreloadedObject near in nearest)
                                     {
@@ -961,7 +963,7 @@ namespace OruxPals
 
                         user = b.name;
                         addit += "<table cellpadding=\"1\" cellspacing=\"1\" border=\"0\">";
-                        addit += String.Format("<tr><td><small>User:</small></td><td> <b>{0} {1}</td></tr>", b.name, b.regUser == null ? "" : "&reg; " + (b.regUser.forward == null ? "" : b.regUser.forward));
+                        addit += String.Format("<tr><td><small>User:</small></td><td> <b><a href=\"../v/mapf.html#{0}\">{0}</a> {1}</td></tr>", b.name, b.regUser == null ? "" : "&reg; " + (b.regUser.forward == null ? "" : b.regUser.forward));
                         addit += String.Format("<tr><td><small>Source:</small></td><td> {0}</td></tr>", src);
                         addit += String.Format("<tr><td><small>Received:</small></td><td> {0} UTC</td></tr>", b.last);
                         addit += String.Format("<tr><td><small>Valid till:</small></td><td> {0} UTC</td></tr>", b.last.AddHours(maxHours));
@@ -973,9 +975,25 @@ namespace OruxPals
                         addit += String.Format("<tr><td><small>Status:</small></td><td style=\"color:maroon;\"> {0}</td></tr>", b.Status == null ? "" : System.Security.SecurityElement.Escape(b.Status));
                         addit += String.Format("<tr><td><small>Origin:</small></td><td style=\"color:gray;\"><small> {0}</small></td></tr>", b.lastPacket);
                         addit += "</table>";
-                        addit += String.Format("<a href=\"" + urlPath + "view#{2}\" target=\"_blank\"><img src=\"http://static-maps.yandex.ru/1.x/?ll={0},{1}&size=500,300&z=13&l=map&pt={0},{1},vkbkm\"/></a>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
-                        addit += String.Format("<a href=\"" + urlPath + "view#{2}\" target=\"_blank\"><img src=\"http://static-maps.yandex.ru/1.x/?ll={0},{1}&size=500,300&z=15&l=map&pt={0},{1},vkbkm\"/></a>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
+
+                        addit += "<div id=\"ZM13\" style=\"display:inline-block;\"></div><div id=\"ZM15\" style=\"display:inline-block;\"></div>";
+
+                        addit += String.Format("<div id=\"YA13\" style=\"border:solid 1px gray;display:inline-block;width:500px;height:300px;background:url('http://static-maps.yandex.ru/1.x/?ll={0},{1}&size=500,300&z=13&l=map&pt={0},{1},round') 0px 0px no-repeat;\">" +
+                            "<div style=\"display:block;width:24;height:24;overflow:hidden;position:relative;left:238;top:138;background:url(../v/images/" + prose + ".png) -" + ileft.ToString() + "px -" + itop.ToString() + "px no-repeat;\"></div>" +
+                            "<div style=\"display:block;width:32;height:32;overflow:visible;position:relative;left:238;top:110;\"><a target=\"_blank\" href=\"" + (urlPath + "view#" + b.name) + "\"><img src=\"../v/images/arrow.png\" style=\"transform:rotate(" + b.course.ToString() + "deg);transform-origin:50% 50% 0px;\" title=\""+b.name+"\"/></a></div>" + 
+                            "</div>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
+                        addit += String.Format("<div id=\"YA15\" style=\"border:solid 1px gray;display:inline-block;width:500px;height:300px;background:url('http://static-maps.yandex.ru/1.x/?ll={0},{1}&size=500,300&z=15&l=map&pt={0},{1},round') 0px 0px no-repeat;\">" +
+                            "<div style=\"display:block;width:24;height:24;overflow:hidden;position:relative;left:238;top:138;background:url(../v/images/" + prose + ".png) -" + ileft.ToString() + "px -" + itop.ToString() + "px no-repeat;\"></div>" +
+                            "<div style=\"display:block;width:32;height:32;overflow:visible;position:relative;left:238;top:110;\"><a target=\"_blank\" href=\"" + (urlPath + "view#" + b.name) + "\"><img src=\"../v/images/arrow.png\" style=\"transform:rotate(" + b.course.ToString() + "deg);transform-origin:50% 50% 0px;\" title=\""+b.name+"\"/></a></div>" + 
+                            "</div>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
                         addit += String.Format("<br/><small><a href=\"https://yandex.ru/maps/?text={1},{0}\" target=\"_blank\">view on yandex</a> | <a href=\"http://maps.google.com/?q={1}+{0}\" target=\"_blank\">view on google</a><small>", b.lon.ToString(System.Globalization.CultureInfo.InvariantCulture), b.lat.ToString(System.Globalization.CultureInfo.InvariantCulture), b.name);
+
+                        addit += "<script>\r\n";
+                        addit += " var mm = new MapMerger(500,300);\r\n ";
+                        addit += " mm.InitIcon('" + b.IconSymbol.Replace(@"\", @"\\").Replace(@"'", @"\'") + "', " + b.course.ToString() + ", '" + b.name + "', '" + (urlPath + "view#" + b.name) + "');\r\n ";
+                        addit += String.Format(System.Globalization.CultureInfo.InvariantCulture, " document.getElementById('ZM13').innerHTML = mm.GetMap({0}, {1}, 13);\r\n", b.lat, b.lon);
+                        addit += String.Format(System.Globalization.CultureInfo.InvariantCulture, " document.getElementById('ZM15').innerHTML = mm.GetMap({0}, {1}, 15);\r\n", b.lat, b.lon);
+                        addit += " </script>\r\n";
                     };
             };
 
@@ -1055,6 +1073,7 @@ namespace OruxPals
                     };
             if ((BUDS != null) && (addit == "")) addit = "<span style=\"color:green;\">Static Objects Data:</span><br/>" + BUDS.GetStaticObjectsInfo();
             HTTPClientSendResponse(cd.client, String.Format(                
+                "<html><head><meta charset=\"windows-1251\"/><meta name=\"robots\" content=\"noindex, follow\"/><title>{0}</title><script src=\"../v/mapmerger.js\"></script></head><body>" + 
                 "<span style=\"color:red;\">Server: {0}</span>\r\n<br/>" +
                 "<span style=\"color:maroon;\">Name: " + ServerName + "</span>\r\n<br/>" +
                 "Port: {4}\r\n<br/>" +
@@ -1063,7 +1082,7 @@ namespace OruxPals
                 "<div style=\"color:blue;\">Clients AIS/APRS(R)/FRS: {2} / {7} ({10}) / {8}\r\n</div><hr/>" +
                 "<div style=\"color:green;\">Buddies Online/Registered/Unregistered: {3}\r\n<br/>" +
                 "{6}\r\n</div><hr/>" +
-                "<div style=\"color:maroon;\">Forward Services:\r\b<br/>" +
+                "<div style=\"color:maroon;\">Forward Services:\r\n<br/>" +
                 "{9}\r\n</div><hr/>"+
                 "<div style=\"color:navy;\">Client connect information:\r\n<br/>" +
                 "&nbsp; &nbsp; OruxMaps\r\n<br/>" +
@@ -1074,7 +1093,8 @@ namespace OruxPals
                 "&nbsp; &nbsp; APRS (APRSDroid) <span style=\"color:black;\">URL:</span> <span style=\"color:blue;\">" + infoIP + ":{4}</span> <i style=\"color:gray;\">user and password required</i>\r\n<br/>" +
                 "&nbsp; &nbsp; FRS (GPSGate Tracker) <span style=\"color:black;\">URL:</span> <span style=\"color:blue;\">" + infoIP + ":{4}</span> <i style=\"color:gray;\">user's phone number must be registered</i>\r\n<br/>" +
                 "</div><hr/>" +
-                addit,
+                addit +
+                "</body></html>",
                 new object[] { 
                 softver, 
                 started, 
@@ -1895,16 +1915,18 @@ namespace OruxPals
 
             public ClientAPRSFilter filter = null;
 
-            public void SetFilter(string filter)
+            public string SetFilter(string filter)
             {
                 this.filter = new ClientAPRSFilter(filter);
+                return this.filter.ToString();
             }
         }
 
         private class ClientAPRSFilter
         {
-            public string filter = "";
+            private string filter = "";
             public int inMyRadiusKM = -1;
+            public int maxStaticObjectsCount = -1;
             public string[] allowStartsWith = new string[0];
             public string[] allowEndsWith = new string[0];
             public string[] allowFullName = new string[0];
@@ -1920,25 +1942,61 @@ namespace OruxPals
 
             private void Init()
             {
-                Match m = Regex.Match(filter, @"me/(\d+)");
-                if (m.Success) inMyRadiusKM = int.Parse(m.Groups[1].Value);
+                string ffparsed = "";
+                Match m = Regex.Match(filter, @"me/([\d\/]+)");
+                if (m.Success)
+                {
+                    string[] rc = m.Groups[1].Value.Split(new char[] { '/' }, 2);
+                    if (rc.Length > 0)
+                    {
+                        inMyRadiusKM = int.Parse(rc[0]);
+                        if (rc.Length > 1) maxStaticObjectsCount = int.Parse(rc[1]);
+                        ffparsed += m.ToString() + " ";
+                    };
+                };
                 m = Regex.Match(filter, @"\+sw/([A-Z\d/\-]+)");
-                if (m.Success) allowStartsWith = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                if (m.Success) 
+                {
+                    allowStartsWith = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                    ffparsed += m.ToString() + " ";
+                };
                 m = Regex.Match(filter, @"\+ew/([A-Z\d/\-]+)");
-                if (m.Success) allowEndsWith = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                if (m.Success) 
+                {
+                    allowEndsWith = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                    ffparsed += m.ToString() + " ";
+                };
                 m = Regex.Match(filter, @"\+fn/([A-Z\d/\-]+)");
-                if (m.Success) allowFullName = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                if (m.Success) 
+                {
+                    allowFullName = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                    ffparsed += m.ToString() + " ";
+                };
                 m = Regex.Match(filter, @"\-sw/([A-Z\d/\-]+)");
-                if (m.Success) denyStartsWith = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                if (m.Success) 
+                {
+                    denyStartsWith = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                    ffparsed += m.ToString() + " ";
+                };
                 m = Regex.Match(filter, @"\-ew/([A-Z\d/\-]+)");
-                if (m.Success) denyEndsWith = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                if (m.Success) 
+                {
+                    denyEndsWith = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                    ffparsed += m.ToString() + " ";
+                };
                 m = Regex.Match(filter, @"\-fn/([A-Z\d/\-]+)");
-                if (m.Success) denyFullName = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);                    
+                if (m.Success) 
+                {
+                    denyFullName = m.Groups[1].Value.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                    ffparsed += m.ToString() + " ";
+                };
+                filter = ffparsed.Trim();
             }
 
             public bool PassName(string name)
             {
-                if((name == null)||(name == ""))return true;
+                if((name == null)||(name == "")) return true;
+                if (filter == "") return true;
                 name = name.ToUpper();
                 bool pass = true;
                 if ((allowStartsWith != null) && (allowStartsWith.Length > 0))
@@ -1972,6 +2030,11 @@ namespace OruxPals
                         if (name == fn)
                             return false;
                 return pass;
+            }
+
+            public override string ToString()
+            {
+                return filter;
             }
         }
     }
