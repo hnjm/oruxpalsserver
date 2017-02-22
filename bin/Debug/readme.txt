@@ -1,9 +1,14 @@
-This is the OruxPalsServer specially written for OruxMaps Android Application.
-The server allow to watch any users geo positions as vessels on the map by AIS.
-Users can upload their positions to the server by GPSGate or MapMyTracks protocols.
+This is the OruxPalsServer specially written for OruxMaps Android Application 
+(6.5.5+ for AIS and 7.0.0rc9+ for APRS). The server can receive position from
+OruxMaps application by GPSGate (HTTP GET) protocol, MapMyTracks protocol or
+APRS protocol. Server stores received positions and send it to all clients connected 
+by AIS or APRS. So you can watch on the map user position in real time as vessels 
+(by AIS) or as aprs icons (by APRS) with names.
 
-Server can send nearest (in raidus range) static objects to each APRS client 
-(defined on his APRS position). Static objects could be used from XML, KML or SQLite.
+Server also can filter sending data to each client with specified user filters:
+- range filter for static objects (me/10/50);
+- name filters to pass or block incoming positions from users or static objects 
+  (+sw/ +ew/ +fn/ -sw/ -ew/ -fn/).
 
 
 WEB ONLINE:
@@ -13,7 +18,7 @@ WEB ONLINE:
 		http://127.0.0.1:12015/oruxpals/info
 	
 	To view online map:
-	http://127.0.0.1:12015/oruxpals/view
+		http://127.0.0.1:12015/oruxpals/view
 	
 	To online generate user hashsum (xml tag <adminName/>):
 		http://127.0.0.1:12015/oruxpals/$admin
@@ -21,7 +26,6 @@ WEB ONLINE:
 
 		
 CONFIGURE ORUXMAPS:		
-
 
 	To connect for upload positions (without speed & course) use MapMyTracks:
 		URL: http://www.mypals.com:12015/oruxpals/m/
@@ -33,37 +37,44 @@ CONFIGURE ORUXMAPS:
 			 ! user - must be from 3 to 9 symbols of any [A-Z0-9]
 		IMEI:  user's password, calculating by hashsum for user by console or browser
 				
-	To connect for view positions use AIS IP Server:
-		GPS-AIS-NMEA source: IP
-		AIS IP URL:  127.0.0.1:12015
+	To connect for view positions using AIS:
+		AIS URL:  127.0.0.1:12015
+		
+	To connect for view and upload position using APRS:
+		APRS URL: 127.0.0.1:12015
 
 		
-CONFIGURE APRS Client (APRSDroid)   
+CONFIGURE APRS Client (APRSDroid / OruxMaps)   
 
 	To connect for view & upload data use APRS Client:
 		URL: 127.0.0.1:12015    
 		
 	filter supported (in APRS auth string):	
-		Static objects filter (filter is not apply for users position):
+		Static objects range/limit filter (filter is not apply for users positions):
 			me/10/30 - maximum 30 static objects from me in 10 km range
 			me/10 - static objects from me in 10 km range			
 			me/0 - no static objects
-		; user can use filter me/range, if he doesn't want to use specified range by xml config file
-		; if user doesn't use me/range filter, static objects will display within range from xml config file
-		User (Group) filter (filter is not apply for static objects):
-			+sw/A/B/C - allow user pos with name starts with A or B or C
-			+ew/A/B/C - allow user pos with name ends with A or B or C
-			+fn/ULKA/RUZA -  allow user pos with name ULKA or RUZA
-			-sw/A/B/C - deny user pos with name starts with A or B or C		
-			-ew/A/B/C - deny user pos with name ends with A or B or C		
-			-fn/ULKA/RUZA -  deny user pos with name ULKA or RUZA
-		; allow filters are first processed, then deny.
-		; by default is allow all. But if you use any + filters, by default is deny.
-		You can use Group filter to create separeted groups that receive positions only from itself group users, ex:
+		; user can use filter me/range/limit, if he doesn't want to use specified range/limit by xml config file
+		; if user doesn't use me/range/limit filter, static objects will display within range/limit from xml config file
+		Name (Group) filter:
+			+sw/A/B/C - pass users/objects pos with name starts with A or B or C
+			+ew/A/B/C - pass users/objects pos with name ends with A or B or C
+			+fn/ULKA/RUZA - pass users/objects pos with name ULKA or RUZA
+			-sw/A/B/C - block users/objects pos with name starts with A or B or C		
+			-ew/A/B/C - block users/objects pos with name ends with A or B or C		
+			-fn/ULKA/RUZA -  block users/objects pos with name ULKA or RUZA
+		; pass filters are first processed, then block.
+		; by default pass all; but if you use any + filters, default is block.
+		You can use Name filter to create separeted groups that receive positions only from itself group users, ex:
 			for users: USERAG1, USER2G1,USERBG1,USER2G1 set filter: +ew/G1
-			for users: G2ANNA,G2ALEX,G3VICTOR set filter: +sw/G3
+			for users: G2ANNA,G2ALEX,G2VICTOR set filter: +sw/G2
+	filter examples:
+		me/10/30 +sw/M4/MOBL +fn/M4OLGA
+		me/5/15 -sw/M4ASZ/MSKAZS -fn/BOAT
+		+ew/G1 +sw/G2
+		-ew/G1 -sw/G3
 		
-	SUPPORTED COMMANDS FROM APRSDroid to Server
+	SUPPORTED COMMANDS FROM APRSDroid to Server (APRS packet type Message):
 		msg to ORXPLS-GW: forward   - get forward state for user (<u forward="???"/> tag)
 		msg to ORXPLS-GW: forward A  - set forward state to A (send users data to global APRS)
 		msg to ORXPLS-GW: forward 0  - set forward state to 0 (zero, no forward)
@@ -119,7 +130,7 @@ How to launch:
 	Generate passcode:
 		OruxPalsServer.exe userName
 
-	Import kml file to SQLite `RouteObjects.db`
+	Import kml file to SQLite `StaticObjects.db`
 		OruxPalsServer.exe /kml2sql
 		OruxPalsServer.exe /kml2sql <file>
 

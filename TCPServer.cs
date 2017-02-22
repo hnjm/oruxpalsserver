@@ -517,12 +517,9 @@ namespace OruxPals
                                 if ((nearest != null) && (nearest.Length > 0))
                                     foreach (PreloadedObject near in nearest)
                                     {
-                                        if ((ci.filter == null) || (ci.filter.PassName(near.name)))
-                                        {
-                                            byte[] bts = Encoding.ASCII.GetBytes(near.ToString());
-                                            try { ci.stream.Write(bts, 0, bts.Length); }
-                                            catch { };
-                                        };
+                                        byte[] bts = Encoding.ASCII.GetBytes(near.ToString());
+                                        try { ci.stream.Write(bts, 0, bts.Length); }
+                                        catch { };
                                     };
                             };
                             ci.lastFixYX = new double[] { 0, 0, 0 };
