@@ -33,6 +33,7 @@
 			<service names="DO" id="0123456789"/>
 		</u>
 	</users>
+	<banlist>USER001,USER002</banlist>
 		
 	<!-- CROSS GATE To Global APRS-IS Network -->
 	

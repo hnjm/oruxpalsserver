@@ -19,7 +19,7 @@ namespace OruxPals
     {
         public static string serviceName { get { return "OruxPalsServer"; } }
         public string ServerName = "OruxPalsServer";
-        public static string softver { get { return "OruxPalsServer v0.12a"; } }
+        public static string softver { get { return "OruxPalsServer v0.13a"; } }
 
         private static bool _NoSendToFRS = true; // GPSGate Tracker didn't support $FRPOS
 
@@ -50,6 +50,7 @@ namespace OruxPals
         private bool sendBack = false;
         private bool callsignToUser = true;
         private string infoIP = "127.0.0.1";
+        private List<string> banlist = new List<string>();
 
         public static void InitCPU()
         {
@@ -87,6 +88,7 @@ namespace OruxPals
             aprscfg = config.aprsis;
             forwardServices = config.forwardServices.services;
             ServerName = config.ServerName;
+            banlist.AddRange(config.banlist.ToUpper().Split(new char[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries));
         }        
 
         public bool Running { get { return isRunning; } }
@@ -337,6 +339,13 @@ namespace OruxPals
             if (rm.Success)
             {
                 string callsign = rm.Groups[1].Value.ToUpper();
+
+                if (banlist.Contains(callsign))
+                {
+                    cd.client.Close();
+                    return false;
+                };
+
                 string password = rm.Groups[2].Value;
                 //string software = rm.Groups[3].Value;
                 //string version = rm.Groups[4].Value;
@@ -2099,6 +2108,7 @@ namespace OruxPals
         public string sendBack = "no";
         public string callsignToUser = "yes";
         public string infoIP = "127.0.0.1";
+        public string banlist = "";
         [XmlElement("users")]
         public RegUsers users;
         [XmlElement("APRSIS")]
