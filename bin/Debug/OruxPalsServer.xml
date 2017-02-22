@@ -97,6 +97,7 @@
 		Static objects will sends to APRS each 45 seconds (You can use if for ex. Gas Stations, Medical, Cafe, etc.)
 		
 		You can set radius range to show objects for each APRS user with filter (in APRS auth string):
+			me/10/30 - maximum 30 static objects from me in 10 km range
 			me/10 - static objects from user in 10 km range
 			me/0 - no static objects
 	-->

@@ -513,7 +513,7 @@ namespace OruxPals
                         {
                             if ((ci.filter == null) || (ci.filter.inMyRadiusKM != 0))
                             {
-                                PreloadedObject[] nearest = BUDS.GetNearest(ci.lastFixYX[1], ci.lastFixYX[2], ci.filter == null ? -1 : ci.filter.inMyRadiusKM, ci.filter == null ? -1 : ci.filter.maxStaticObjectsCount);
+                                PreloadedObject[] nearest = BUDS.GetNearest(ci.lastFixYX[1], ci.lastFixYX[2], ci.filter);
                                 if ((nearest != null) && (nearest.Length > 0))
                                     foreach (PreloadedObject near in nearest)
                                     {
@@ -1922,7 +1922,7 @@ namespace OruxPals
             }
         }
 
-        private class ClientAPRSFilter
+        public class ClientAPRSFilter
         {
             private string filter = "";
             public int inMyRadiusKM = -1;

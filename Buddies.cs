@@ -194,20 +194,23 @@ namespace OruxPals
 
         public PreloadedObject[] GetNearest(double lat, double lon)
         {
-            return GetNearest(lat, lon, -1, -1);
+            return GetNearest(lat, lon, null);
         }
 
-        public PreloadedObject[] GetNearest(double lat, double lon, int kmRadius, int maxObjects)
+        public PreloadedObject[] GetNearest(double lat, double lon, OruxPalsServer.ClientAPRSFilter filter)
         {
-            List<PreloadedObject> objs = new List<PreloadedObject>();            
-            
+            List<PreloadedObject> objs = new List<PreloadedObject>();
+
+            int kmRadius = (filter == null) ? KMLObjectsRadius : filter.inMyRadiusKM;
+            int maxObjects = (filter == null) ? KMLObjectsLimit : filter.maxStaticObjectsCount;
+
             // FROM FILES
             PreloadedObject[] gfl;
             lock (Objects) gfl = Objects.ToArray();
             foreach (PreloadedObject obj in gfl)
             {
-                if(obj.radius < 0) continue;
-                if((obj.distance = GetLengthAB(lat,lon,obj.lat,obj.lon)) < ((kmRadius < 0 ? obj.radius : kmRadius) * 1000))
+                if (obj.radius < 0) continue;
+                if ((obj.distance = GetLengthAB(lat, lon, obj.lat, obj.lon)) < ((kmRadius < 0 ? obj.radius : kmRadius) * 1000))
                     objs.Add(obj);
             };
 
@@ -242,7 +245,10 @@ namespace OruxPals
                                     kmRadius, dr["COMMENT"].ToString(), "SQL");
                                 // Select in Radius //
                                 if ((sqlo.distance = GetLengthAB(lat, lon, sqlo.lat, sqlo.lon)) < (sqlo.radius * 1000))
-                                    objs.Add(sqlo);
+                                    // use filter
+                                    if((filter == null) || (filter.PassName(sqlo.name)))
+                                        objs.Add(sqlo);
+
                             };
                             dr.Close();
                         }
