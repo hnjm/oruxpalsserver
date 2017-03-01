@@ -1816,9 +1816,11 @@ namespace OruxPals
             if (ext == ".css") ctype = "";// "text/css; charset=windows-1251";
             if (ext == ".js") ctype = "text/javascript; charset=windows-1251";
             if (ext == ".png") ctype = "image/png";
+            if (ext == ".gif") ctype = "image/gif";
+            if ((ext == ".txt") || (ext == ".csv") || (ext == ".readme")) ctype = "text/plain";
             if ((ext == ".jpg") || (ext == ".jpeg")) ctype = "image/jpeg";
             if ((ext == ".xml") || (ext == ".kml")) ctype = "text/xml; charset=utf-8";
-            if ((ext == ".apk") || (ext == ".exe") || (ext == ".rar") || (ext == ".bin")) ctype = "application/octet-stream";
+            if ((ext == ".apk") || (ext == ".exe") || (ext == ".rar") || (ext == ".zip") || (ext == ".bin")) ctype = "application/octet-stream";
 
             string Headers =
                 "HTTP/1.1 200 OK\r\n" +
