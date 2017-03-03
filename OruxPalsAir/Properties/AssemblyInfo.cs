@@ -5,11 +5,11 @@ using System.Runtime.InteropServices;
 // General Information about an assembly is controlled through the following 
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("OruxPalsServer")]
-[assembly: AssemblyDescription("OruxPalsServer")]
+[assembly: AssemblyTitle("OruxPalsAir")]
+[assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("dkxce@mail.ru")]
-[assembly: AssemblyProduct("OruxPalsServer")]
+[assembly: AssemblyCompany("")]
+[assembly: AssemblyProduct("OruxPalsAir")]
 [assembly: AssemblyCopyright("Copyright © dkxce@mail.ru 2017")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
@@ -20,7 +20,7 @@ using System.Runtime.InteropServices;
 [assembly: ComVisible(false)]
 
 // The following GUID is for the ID of the typelib if this project is exposed to COM
-[assembly: Guid("09d58537-99bb-48e6-b5c9-6190ce9f08e1")]
+[assembly: Guid("1d24ff7e-ed1e-415a-8b19-9b822fd9ad13")]
 
 // Version information for an assembly consists of the following four values:
 //
@@ -29,5 +29,5 @@ using System.Runtime.InteropServices;
 //      Build Number
 //      Revision
 //
-[assembly: AssemblyVersion("17.3.3.14")]
-[assembly: AssemblyFileVersion("17.3.3.14")]
+[assembly: AssemblyVersion("17.3.3.1")]
+[assembly: AssemblyFileVersion("17.3.3.1")]

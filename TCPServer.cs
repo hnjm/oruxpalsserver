@@ -19,7 +19,7 @@ namespace OruxPals
     {
         public static string serviceName { get { return "OruxPalsServer"; } }
         public string ServerName = "OruxPalsServer";
-        public static string softver { get { return "OruxPalsServer v0.13a"; } }
+        public static string softver { get { return "OruxPalsServer v0.14a"; } }
 
         private static bool _NoSendToFRS = true; // GPSGate Tracker didn't support $FRPOS
 
@@ -187,6 +187,7 @@ namespace OruxPals
             string pingmsg = "# " + softver + "\r\n";
             byte[] pingdata = Encoding.ASCII.GetBytes(pingmsg);
             BroadcastAPRS(pingdata);
+            Send2Air(null, pingdata);
 
             SafetyRelatedBroadcastMessage sbm = new SafetyRelatedBroadcastMessage("PING, " + OruxPalsServer.softver.ToUpper());
             string txt = sbm.ToPacketFrame() + "\r\n";
@@ -300,6 +301,15 @@ namespace OruxPals
                                 OnFRSData(cd, line);
                         };
 
+                        // AFSKMODEM
+                        if (cd.state == 7)
+                        {
+                            string[] lines = rxText.Split(new string[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+                            rxText = "";
+                            foreach (string line in lines)
+                                OnAir(cd, line);
+                        };
+
                         rxText = "";
                     };
                 }
@@ -359,6 +369,19 @@ namespace OruxPals
                 // these users can upload data to server
                 if ((psw == APRSData.CallsignChecksum(callsign)) || (psw == Buddie.Hash(callsign)))
                 {
+                    if (callsign == "AFSKMODEM")
+                    {
+                        cd.state = 7; // AFSKMODEM
+                        cd.user = callsign;
+
+                        res = "# logresp " + callsign + " verified, server " + serviceName.ToUpper();
+                        byte[] aret = Encoding.ASCII.GetBytes(res + "\r\n");
+                        try { cd.stream.Write(aret, 0, aret.Length); }
+                        catch { };
+
+                        return true;
+                    };
+
                     cd.state = 4; //APRS
                     cd.user = callsign; // .user - valid username for callsign
 
@@ -379,7 +402,7 @@ namespace OruxPals
                     try { cd.stream.Write(ret, 0, ret.Length); }
                     catch { };
 
-                    SendBuddies(cd);                    
+                    SendBuddies(cd);
                     return true;
                 };
             };
@@ -481,7 +504,67 @@ namespace OruxPals
                }
                else // if not Position Packet send as is only to all APRS clients
                    Broadcast(b.APRSData, b.name, false, true, false);
+
+               // broadcast to air
+               Send2Air(cd, b.APRSData);
             };
+        }
+
+        private void OnAir(ClientData cd, string line)
+        {
+            //Console.WriteLine("AIR> " + line);
+
+            if (line.IndexOf("#") == 0) return;
+            
+            int id = line.IndexOf(":");
+            int ip = line.IndexOf(">");
+            if (id > 0)
+            {
+                string IGate = "ORXPLS-GW";
+                if ((aprscfg != null) && (aprscfg.user != null) && (aprscfg.user != String.Empty)) IGate = aprscfg.user;
+                line = line.Insert(line.IndexOf(":"), (id == (ip + 1) ? "qAR" : ",qAR") + "," + IGate);
+            };
+            
+            // PARSE NORMAL PACKET
+            Buddie b = APRSData.ParseAPRSPacket(line);
+
+            // 2 SERVER MESSAGE
+            // messages for server no need to save, broadcast & forward
+            try { if (line.IndexOf("::") > 0) if (OnAPRSinternalMessage(cd, b, line)) return; }
+            catch { };
+
+            // Direct Forward to Global
+            if ((aprsgw != null) && (aprscfg.aprs2global == "yes"))
+                aprsgw.SendCommand(b.APRS);
+
+            // if status
+            if ((line.IndexOf(":>") > 0) && (BUDS != null))
+                BUDS.UpdateStatus(b, line.Substring(line.IndexOf(":>") + 2));
+
+            if ((b.PositionIsValid)) // if Position Packet send to All (AIS + APRS + Web)
+                OnNewData(b);
+            else // if not Position Packet send as is only to all APRS clients
+                Broadcast(b.APRSData, b.name, false, true, false);
+
+            // broadcast to air
+            Send2Air(cd, b.APRSData);
+        }
+
+        private void Send2Air(ClientData sender, byte[] aprs)
+        {
+            List<ClientData> cdlist = new List<ClientData>();
+            lock (clientList)
+                foreach (object obj in clientList.Values)
+                {
+                    if (obj == null) continue;
+                    ClientData cd = (ClientData)obj;
+                    if ((cd.state == 7) && ((sender == null) || (cd.id != sender.id)))
+                        cdlist.Add(cd);
+                };
+
+            foreach (ClientData cd in cdlist)
+                try { cd.client.GetStream().Write(aprs, 0, aprs.Length); }
+                catch { };
         }
 
         private void SendBuddies(ClientData cd)
@@ -1007,6 +1090,7 @@ namespace OruxPals
             int cAPRS = 0;
             int cAPRSr = 0;
             int cFRS = 0;
+            int cAIR = 0;
             lock (clientList)
                 foreach (ClientData ci in clientList.Values)
                 {
@@ -1014,6 +1098,7 @@ namespace OruxPals
                     if (ci.state == 4) { cAPRS++; cAPRSr++; };
                     if (ci.state == 5) cFRS++;
                     if (ci.state == 6) cAPRS++;
+                    if (ci.state == 7) cAIR++;
                 };
             int bc = 0, rbc = 0;
             string rbds = "";
@@ -1085,7 +1170,7 @@ namespace OruxPals
                 "Port: {4}\r\n<br/>" +
                 "Started {1} UTC\r\n<br/>" +
                 "<a href=\"{5}info\">Main View</a> | <a href=\"{5}view\">Map View</a> | <a href=\"{5}v/resources\">Resources</a> | <a href=\"{5}v/objects\">Objects</a>\r\n<hr/>" +
-                "<div style=\"color:blue;\">Clients AIS/APRS(R)/FRS: {2} / {7} ({10}) / {8}\r\n</div><hr/>" +
+                "<div style=\"color:blue;\">Clients AIS/APRS(R)/FRS/AIR: {2} / {7} ({10}) / {8} / {11}\r\n</div><hr/>" +
                 "<div style=\"color:green;\">Buddies Online/Registered/Unregistered: {3}\r\n<br/>" +
                 "{6}\r\n</div><hr/>" +
                 "<div style=\"color:maroon;\">Forward Services:\r\n<br/>" +
@@ -1112,7 +1197,8 @@ namespace OruxPals
                 cAPRS,
                 cFRS,
                 fsvc,
-                cAPRSr
+                cAPRSr,
+                cAIR
                 }));
         }
 

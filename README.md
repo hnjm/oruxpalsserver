@@ -29,3 +29,18 @@ Server also can filter sending data to each client with specified user filters:
 - range filter for static objects (me/10/50);
 - name filters to pass or block incoming positions from users or static objects 
   (+sw/ +ew/ +fn/ -sw/ -ew/ -fn/).
+  
+On-Air function:
+You can connect to OruxPalsServer with specially written OruxPalsAir client 
+to receive AFSK 1200 AX.25 packets from Air and send them through your 
+SoundCard Direct Input/Output. So OruxPalsServer can receive/send AFSK
+packets. But:
+- server will send packets to Air (OruxPalsAir client) directly received from
+APRS clients only; no from Global APRS, MapMyTracks, GPSGate or FRS. So
+if you connected to server with OruxMaps only APRS packets will be
+translated to Air;
+- if aprs2global==yes all packets received from Air (OruxPalsAir client) will be
+directly forwarded to global APRS;
+- there is no callsign/user replaces for incoming packets from air. So if callsign
+specified in <u><service names="A" id="..."/></u> in system user name will be
+as in air packet callsign, not <u name="..."/>!
